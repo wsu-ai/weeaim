@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import ventures
+from app.routers import ventures, wizard
 
 app = FastAPI(title="WEEAIM API")
 
@@ -15,6 +15,7 @@ if settings.environment != "production":
     )
 
 app.include_router(ventures.router)
+app.include_router(wizard.router)
 
 
 @app.get("/health")

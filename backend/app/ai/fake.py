@@ -1,4 +1,4 @@
-from app.ai.schemas import IdeaInterpretation
+from app.ai.schemas import IdeaInterpretation, StageAnalysis
 
 
 class FakeAIProvider:
@@ -16,5 +16,16 @@ class FakeAIProvider:
             geography=None,
             target_customer=None,
             problem_hypothesis=None,
+            confidence=0.5,
+        )
+
+    async def analyze_stage(
+        self, stage_slug: str, idea_context: str, answers: dict
+    ) -> StageAnalysis:
+        return StageAnalysis(
+            summary=f"Fake analysis of {stage_slug}.",
+            strengths=["Clear answer provided."],
+            gaps=["No real evidence attached yet."],
+            suggested_next_steps=["Run a customer interview."],
             confidence=0.5,
         )
