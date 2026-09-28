@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     service_db_password: str = ""
     redis_url: str = ""
     environment: str = "development"
+    openai_api_key: str = ""
+    openai_model: str = "gpt-6-astra"
 
 
 settings = Settings()

@@ -3,6 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -14,11 +15,24 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { createVenture } from "@/lib/api";
+import {
+  confirmIdea,
+  createVenture,
+  interpretIdea,
+  type IdeaInterpretation,
+} from "@/lib/api";
+
+type IdeaFormValues = { idea: string };
 
 export default function IdeaIntakePage() {
   const t = useTranslations("IdeaIntake");
+  const tc = useTranslations("IdeaConfirmation");
+
+  const [ventureId, setVentureId] = useState<string | null>(null);
+  const [interpretation, setInterpretation] = useState<IdeaInterpretation | null>(null);
+  const [confirmed, setConfirmed] = useState(false);
 
   const ideaSchema = z.object({
     idea: z
@@ -26,26 +40,113 @@ export default function IdeaIntakePage() {
       .min(20, { message: t("errorTooShort") })
       .max(2000, { message: t("errorTooLong") }),
   });
-  type IdeaFormValues = z.infer<typeof ideaSchema>;
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors },
-  } = useForm<IdeaFormValues>({
-    resolver: zodResolver(ideaSchema),
+  const ideaForm = useForm<IdeaFormValues>({ resolver: zodResolver(ideaSchema) });
+
+  const submitMutation = useMutation({
+    mutationFn: async (values: IdeaFormValues) => {
+      const venture = await createVenture(values.idea);
+      const interp = await interpretIdea(venture.id);
+      return { venture, interp };
+    },
+    onSuccess: ({ venture, interp }) => {
+      setVentureId(venture.id);
+      setInterpretation(interp);
+    },
   });
 
-  const mutation = useMutation({
-    mutationFn: (values: IdeaFormValues) => createVenture(values.idea),
-  });
+  const reviewForm = useForm<IdeaInterpretation>();
 
-  async function onSubmit(values: IdeaFormValues) {
-    try {
-      await mutation.mutateAsync(values);
-    } catch {
-      // Surfaced via mutation.isError below; nothing further to do here.
+  useEffect(() => {
+    if (interpretation) {
+      reviewForm.reset(interpretation);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [interpretation]);
+
+  const confirmMutation = useMutation({
+    mutationFn: (values: IdeaInterpretation) => {
+      if (!ventureId) throw new Error("Missing venture id");
+      return confirmIdea(ventureId, values);
+    },
+    onSuccess: () => setConfirmed(true),
+  });
+
+  if (confirmed) {
+    return (
+      <main className="flex flex-1 items-center justify-center p-6">
+        <Card className="w-full max-w-xl">
+          <CardContent className="pt-6" role="status">
+            <h2 className="font-semibold">{t("confirmationTitle")}</h2>
+            <p className="text-muted-foreground mt-1 text-sm">{t("confirmationBody")}</p>
+          </CardContent>
+        </Card>
+      </main>
+    );
+  }
+
+  if (interpretation) {
+    return (
+      <main className="flex flex-1 items-center justify-center p-6">
+        <Card className="w-full max-w-xl">
+          <CardHeader>
+            <CardTitle>{tc("title")}</CardTitle>
+            <CardDescription>{tc("description")}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form
+              onSubmit={reviewForm.handleSubmit((values) => confirmMutation.mutate(values))}
+              className="flex flex-col gap-3"
+              noValidate
+            >
+              <label htmlFor="review-title" className="text-sm font-medium">
+                {tc("fieldTitle")}
+              </label>
+              <Input id="review-title" {...reviewForm.register("title")} />
+
+              <label htmlFor="review-summary" className="text-sm font-medium">
+                {tc("fieldSummary")}
+              </label>
+              <Textarea id="review-summary" rows={3} {...reviewForm.register("summary")} />
+
+              <label htmlFor="review-industry" className="text-sm font-medium">
+                {tc("fieldIndustry")}
+              </label>
+              <Input id="review-industry" {...reviewForm.register("industry")} />
+
+              <label htmlFor="review-geography" className="text-sm font-medium">
+                {tc("fieldGeography")}
+              </label>
+              <Input id="review-geography" {...reviewForm.register("geography")} />
+
+              <label htmlFor="review-target-customer" className="text-sm font-medium">
+                {tc("fieldTargetCustomer")}
+              </label>
+              <Input id="review-target-customer" {...reviewForm.register("target_customer")} />
+
+              <label htmlFor="review-problem-hypothesis" className="text-sm font-medium">
+                {tc("fieldProblemHypothesis")}
+              </label>
+              <Textarea
+                id="review-problem-hypothesis"
+                rows={2}
+                {...reviewForm.register("problem_hypothesis")}
+              />
+
+              {confirmMutation.isError && (
+                <p className="text-destructive text-sm" role="alert">
+                  {tc("errorConfirmFailed")}
+                </p>
+              )}
+
+              <Button type="submit" disabled={confirmMutation.isPending} className="self-start">
+                {confirmMutation.isPending ? tc("confirming") : tc("confirm")}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      </main>
+    );
   }
 
   return (
@@ -56,16 +157,11 @@ export default function IdeaIntakePage() {
           <CardDescription>{t("description")}</CardDescription>
         </CardHeader>
         <CardContent>
-          {mutation.isSuccess ? (
-            <div role="status">
-              <h2 className="font-semibold">{t("confirmationTitle")}</h2>
-              <p className="text-muted-foreground mt-1 text-sm">
-                {t("confirmationBody")}
-              </p>
-            </div>
+          {submitMutation.isPending ? (
+            <p role="status">{tc("loading")}</p>
           ) : (
             <form
-              onSubmit={handleSubmit(onSubmit)}
+              onSubmit={ideaForm.handleSubmit((values) => submitMutation.mutate(values))}
               className="flex flex-col gap-3"
               noValidate
             >
@@ -76,25 +172,21 @@ export default function IdeaIntakePage() {
                 id="idea"
                 rows={6}
                 placeholder={t("placeholder")}
-                aria-invalid={!!errors.idea}
-                {...register("idea")}
+                aria-invalid={!!ideaForm.formState.errors.idea}
+                {...ideaForm.register("idea")}
               />
-              {errors.idea && (
+              {ideaForm.formState.errors.idea && (
                 <p className="text-destructive text-sm" role="alert">
-                  {errors.idea.message}
+                  {ideaForm.formState.errors.idea.message}
                 </p>
               )}
-              {mutation.isError && (
+              {submitMutation.isError && (
                 <p className="text-destructive text-sm" role="alert">
                   {t("errorSubmitFailed")}
                 </p>
               )}
-              <Button
-                type="submit"
-                disabled={mutation.isPending}
-                className="self-start"
-              >
-                {mutation.isPending ? t("submitting") : t("submit")}
+              <Button type="submit" className="self-start">
+                {t("submit")}
               </Button>
             </form>
           )}

@@ -8,8 +8,23 @@
     "errorTooLong": "아이디어는 2000자 이하로 입력해 주세요.",
     "submit": "아이디어 제출",
     "submitting": "제출 중...",
-    "confirmationTitle": "아이디어가 접수되었습니다",
-    "confirmationBody": "감사합니다 -- 아이디어가 접수되었습니다. 다음 단계(AI 기반 구조화)는 아직 연결되어 있지 않습니다.",
+    "confirmationTitle": "아이디어가 확정되었습니다",
+    "confirmationBody": "아이디어가 분석되어 저장되었습니다. 다음 단계(가이드 검증)는 아직 연결되어 있지 않습니다.",
     "errorSubmitFailed": "아이디어 제출 중 문제가 발생했습니다. 다시 시도해 주세요."
+  },
+  "IdeaConfirmation": {
+    "title": "AI 분석 결과를 확인해 주세요",
+    "description": "맞지 않는 내용이 있다면 수정한 후 확정해 주세요.",
+    "loading": "아이디어를 분석하는 중...",
+    "fieldTitle": "제목",
+    "fieldSummary": "요약",
+    "fieldIndustry": "산업 분야",
+    "fieldGeography": "지역",
+    "fieldTargetCustomer": "타겟 고객",
+    "fieldProblemHypothesis": "문제 가설",
+    "confirm": "확인하고 계속하기",
+    "confirming": "저장 중...",
+    "errorInterpretFailed": "아이디어 분석에 실패했습니다. 다시 시도해 주세요.",
+    "errorConfirmFailed": "확정 내용을 저장하지 못했습니다. 다시 시도해 주세요."
   }
 }

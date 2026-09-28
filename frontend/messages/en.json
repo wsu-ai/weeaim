@@ -8,8 +8,23 @@
     "errorTooLong": "Please keep your idea under 2000 characters.",
     "submit": "Submit idea",
     "submitting": "Submitting...",
-    "confirmationTitle": "Idea received",
-    "confirmationBody": "Thanks -- we've received your idea. The next step (AI-assisted structuring) isn't connected yet.",
+    "confirmationTitle": "Idea confirmed",
+    "confirmationBody": "Your idea has been analyzed and saved. The next step (guided validation) isn't connected yet.",
     "errorSubmitFailed": "Something went wrong submitting your idea. Please try again."
+  },
+  "IdeaConfirmation": {
+    "title": "Review the AI's interpretation",
+    "description": "Edit anything that doesn't look right, then confirm.",
+    "loading": "Analyzing your idea...",
+    "fieldTitle": "Title",
+    "fieldSummary": "Summary",
+    "fieldIndustry": "Industry",
+    "fieldGeography": "Geography",
+    "fieldTargetCustomer": "Target customer",
+    "fieldProblemHypothesis": "Problem hypothesis",
+    "confirm": "Confirm and continue",
+    "confirming": "Saving...",
+    "errorInterpretFailed": "We couldn't analyze your idea. Please try again.",
+    "errorConfirmFailed": "We couldn't save your confirmation. Please try again."
   }
 }
