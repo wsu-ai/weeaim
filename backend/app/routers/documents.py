@@ -3,7 +3,7 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.embedding_provider import EmbeddingProvider
@@ -12,7 +12,14 @@ from app.config import settings
 from app.db import get_session
 from app.dependencies import get_embedding_provider, get_storage_adapter
 from app.documents.extraction import extract_document
-from app.documents.schemas import DocumentEmbedResult, DocumentProcessResult, DocumentRead
+from app.documents.retrieval import reciprocal_rank_fusion
+from app.documents.schemas import (
+    DocumentEmbedResult,
+    DocumentProcessResult,
+    DocumentRead,
+    RetrievedChunk,
+    RetrieveRequest,
+)
 from app.documents.validation import DocumentValidationError, validate_upload
 from app.models import AuditLog, Document, DocumentChunk
 from app.routers.ventures import _load_venture
@@ -240,3 +247,62 @@ async def embed_document(
         await session.commit()
 
     return DocumentEmbedResult(embedded_count=len(unembedded))
+
+
+@router.post("/{venture_id}/retrieve", response_model=list[RetrievedChunk])
+async def retrieve_chunks(
+    venture_id: uuid.UUID,
+    payload: RetrieveRequest,
+    auth: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_session),
+    embedder: EmbeddingProvider = Depends(get_embedding_provider),
+) -> list[RetrievedChunk]:
+    venture = await _load_venture(session, auth, venture_id)
+    limit = min(payload.limit, settings.retrieval_max_chunks)
+    candidate_pool = settings.retrieval_max_chunks
+
+    (query_vector,) = await embedder.embed([payload.query])
+
+    vector_chunks = (
+        await session.execute(
+            select(DocumentChunk)
+            .where(
+                DocumentChunk.venture_id == venture.id,
+                DocumentChunk.embedding.is_not(None),
+            )
+            .order_by(DocumentChunk.embedding.cosine_distance(query_vector))
+            .limit(candidate_pool)
+        )
+    ).scalars().all()
+
+    tsquery = func.plainto_tsquery("simple", payload.query)
+    tsvector = func.to_tsvector("simple", DocumentChunk.content)
+    fulltext_chunks = (
+        await session.execute(
+            select(DocumentChunk)
+            .where(DocumentChunk.venture_id == venture.id, tsvector.op("@@")(tsquery))
+            .order_by(func.ts_rank(tsvector, tsquery).desc())
+            .limit(candidate_pool)
+        )
+    ).scalars().all()
+
+    chunks_by_id = {chunk.id: chunk for chunk in [*vector_chunks, *fulltext_chunks]}
+    scores = reciprocal_rank_fusion(
+        [[c.id for c in vector_chunks], [c.id for c in fulltext_chunks]]
+    )
+    ranked_ids = sorted(scores, key=lambda cid: scores[cid], reverse=True)[:limit]
+
+    results = []
+    for chunk_id in ranked_ids:
+        chunk = chunks_by_id[chunk_id]
+        results.append(
+            RetrievedChunk(
+                citation_id=chunk.id,
+                document_id=chunk.document_id,
+                content=chunk.content,
+                page_number=chunk.page_number,
+                section_heading=chunk.section_heading,
+                score=scores[chunk.id],
+            )
+        )
+    return results

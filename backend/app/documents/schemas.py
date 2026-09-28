@@ -24,3 +24,17 @@ class DocumentProcessResult(BaseModel):
 
 class DocumentEmbedResult(BaseModel):
     embedded_count: int
+
+
+class RetrieveRequest(BaseModel):
+    query: str
+    limit: int = 10
+
+
+class RetrievedChunk(BaseModel):
+    citation_id: uuid.UUID
+    document_id: uuid.UUID
+    content: str
+    page_number: int | None
+    section_heading: str | None
+    score: float

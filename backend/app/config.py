@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     embedding_model: str = "text-embedding-3-large"
     embedding_dimensions: int = 1024
     embedding_batch_size: int = 100
+    retrieval_max_chunks: int = 20
 
 
 settings = Settings()
