@@ -9,6 +9,7 @@
     "submit": "Submit idea",
     "submitting": "Submitting...",
     "confirmationTitle": "Idea received",
-    "confirmationBody": "Thanks -- we've received your idea. The next step (AI-assisted structuring) isn't connected yet."
+    "confirmationBody": "Thanks -- we've received your idea. The next step (AI-assisted structuring) isn't connected yet.",
+    "errorSubmitFailed": "Something went wrong submitting your idea. Please try again."
   }
 }

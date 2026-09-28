@@ -1,6 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useMutation } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -14,6 +15,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
+import { createVenture } from "@/lib/api";
 
 export default function IdeaIntakePage() {
   const t = useTranslations("IdeaIntake");
@@ -29,15 +31,21 @@ export default function IdeaIntakePage() {
   const {
     register,
     handleSubmit,
-    formState: { errors, isSubmitting, isSubmitSuccessful },
+    formState: { errors },
   } = useForm<IdeaFormValues>({
     resolver: zodResolver(ideaSchema),
   });
 
-  // Mocked submission for the Phase 5 vertical slice: no backend call yet.
-  // Phase 6 replaces this with a real POST /api/ventures via react-query.
-  async function onSubmit() {
-    await new Promise((resolve) => setTimeout(resolve, 300));
+  const mutation = useMutation({
+    mutationFn: (values: IdeaFormValues) => createVenture(values.idea),
+  });
+
+  async function onSubmit(values: IdeaFormValues) {
+    try {
+      await mutation.mutateAsync(values);
+    } catch {
+      // Surfaced via mutation.isError below; nothing further to do here.
+    }
   }
 
   return (
@@ -48,7 +56,7 @@ export default function IdeaIntakePage() {
           <CardDescription>{t("description")}</CardDescription>
         </CardHeader>
         <CardContent>
-          {isSubmitSuccessful ? (
+          {mutation.isSuccess ? (
             <div role="status">
               <h2 className="font-semibold">{t("confirmationTitle")}</h2>
               <p className="text-muted-foreground mt-1 text-sm">
@@ -76,8 +84,17 @@ export default function IdeaIntakePage() {
                   {errors.idea.message}
                 </p>
               )}
-              <Button type="submit" disabled={isSubmitting} className="self-start">
-                {isSubmitting ? t("submitting") : t("submit")}
+              {mutation.isError && (
+                <p className="text-destructive text-sm" role="alert">
+                  {t("errorSubmitFailed")}
+                </p>
+              )}
+              <Button
+                type="submit"
+                disabled={mutation.isPending}
+                className="self-start"
+              >
+                {mutation.isPending ? t("submitting") : t("submit")}
               </Button>
             </form>
           )}

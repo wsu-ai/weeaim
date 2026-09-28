@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     service_db_user: str = ""
     service_db_password: str = ""
     redis_url: str = ""
+    environment: str = "development"
 
 
 settings = Settings()

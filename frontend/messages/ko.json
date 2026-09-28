@@ -9,6 +9,7 @@
     "submit": "아이디어 제출",
     "submitting": "제출 중...",
     "confirmationTitle": "아이디어가 접수되었습니다",
-    "confirmationBody": "감사합니다 -- 아이디어가 접수되었습니다. 다음 단계(AI 기반 구조화)는 아직 연결되어 있지 않습니다."
+    "confirmationBody": "감사합니다 -- 아이디어가 접수되었습니다. 다음 단계(AI 기반 구조화)는 아직 연결되어 있지 않습니다.",
+    "errorSubmitFailed": "아이디어 제출 중 문제가 발생했습니다. 다시 시도해 주세요."
   }
 }
