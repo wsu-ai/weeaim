@@ -8,5 +8,8 @@ class Base(DeclarativeBase):
     pass
 
 
-engine = create_async_engine(settings.database_url)
+# The running app connects as venture_app, which is subject to row-level
+# security (see docs/migrations.md). settings.database_url (the schema-owner
+# role) is used only by Alembic migrations, never by the app at runtime.
+engine = create_async_engine(settings.app_database_url)
 async_session = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)

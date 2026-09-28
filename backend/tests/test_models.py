@@ -3,6 +3,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.db import async_session
 from app.models import Organization, User, Venture
+from app.tenancy import set_current_organization
 
 
 @pytest.mark.asyncio
@@ -12,6 +13,7 @@ async def test_venture_requires_organization_and_owner():
         user = User(email="founder@acme.test", display_name="Founder")
         session.add_all([org, user])
         await session.flush()
+        await set_current_organization(session, org.id)
 
         venture = Venture(
             organization_id=org.id,
