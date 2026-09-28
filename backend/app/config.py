@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-6-astra"
     upload_storage_dir: str = "./storage/uploads"
     max_upload_size_bytes: int = 20_000_000
+    embedding_model: str = "text-embedding-3-large"
+    embedding_dimensions: int = 1024
+    embedding_batch_size: int = 100
 
 
 settings = Settings()

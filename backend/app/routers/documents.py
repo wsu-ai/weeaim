@@ -6,12 +6,13 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.embedding_provider import EmbeddingProvider
 from app.auth import AuthContext, get_auth_context
 from app.config import settings
 from app.db import get_session
-from app.dependencies import get_storage_adapter
+from app.dependencies import get_embedding_provider, get_storage_adapter
 from app.documents.extraction import extract_document
-from app.documents.schemas import DocumentProcessResult, DocumentRead
+from app.documents.schemas import DocumentEmbedResult, DocumentProcessResult, DocumentRead
 from app.documents.validation import DocumentValidationError, validate_upload
 from app.models import AuditLog, Document, DocumentChunk
 from app.routers.ventures import _load_venture
@@ -198,3 +199,44 @@ async def process_document(
     return DocumentProcessResult(
         document=DocumentRead.model_validate(document), chunk_count=len(chunks)
     )
+
+
+@router.post(
+    "/{venture_id}/documents/{document_id}/embed", response_model=DocumentEmbedResult
+)
+async def embed_document(
+    venture_id: uuid.UUID,
+    document_id: uuid.UUID,
+    auth: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_session),
+    embedder: EmbeddingProvider = Depends(get_embedding_provider),
+) -> DocumentEmbedResult:
+    venture = await _load_venture(session, auth, venture_id)
+    document = await _load_document(session, venture.id, document_id)
+
+    unembedded = (
+        await session.execute(
+            select(DocumentChunk).where(
+                DocumentChunk.document_id == document.id,
+                DocumentChunk.embedding.is_(None),
+            )
+        )
+    ).scalars().all()
+
+    if unembedded:
+        vectors = await embedder.embed([chunk.content for chunk in unembedded])
+        for chunk, vector in zip(unembedded, vectors, strict=True):
+            chunk.embedding = vector
+
+        session.add(
+            AuditLog(
+                organization_id=auth.organization_id,
+                actor_user_id=auth.user_id,
+                action="document.embed",
+                resource_type="document",
+                resource_id=document.id,
+            )
+        )
+        await session.commit()
+
+    return DocumentEmbedResult(embedded_count=len(unembedded))

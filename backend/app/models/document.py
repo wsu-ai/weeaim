@@ -11,6 +11,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from pgvector.sqlalchemy import Vector
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -62,5 +63,7 @@ class DocumentChunk(Base, UUIDPKMixin, CreatedAtMixin):
     chunk_metadata: Mapped[dict] = mapped_column(
         "metadata", JSONB, nullable=False, server_default="{}"
     )
-    # Embedding column intentionally omitted: added once the embedding model
-    # and vector dimension are confirmed (Phase 9), per docs/product-requirements.md.
+    # Dimension (1024) is coupled to settings.embedding_dimensions and the
+    # migration that created this column -- change both together, or writes
+    # from EmbeddingProvider.embed() will fail against the DB constraint.
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(1024), nullable=True)

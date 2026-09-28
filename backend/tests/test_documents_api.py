@@ -7,8 +7,9 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, select
 
 from app import config
+from app.ai.embedding_provider import FakeEmbeddingProvider
 from app.db import async_session
-from app.dependencies import get_storage_adapter
+from app.dependencies import get_embedding_provider, get_storage_adapter
 from app.main import app
 from app.models import (
     AuditLog,
@@ -73,6 +74,24 @@ def temp_storage_dir():
         app.dependency_overrides[get_storage_adapter] = lambda: adapter
         yield Path(tmp)
         app.dependency_overrides.pop(get_storage_adapter, None)
+
+
+class _CountingFakeEmbeddingProvider(FakeEmbeddingProvider):
+    def __init__(self, dimensions: int = 1024) -> None:
+        super().__init__(dimensions=dimensions)
+        self.call_count = 0
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        self.call_count += 1
+        return await super().embed(texts)
+
+
+@pytest.fixture
+def fake_embedder():
+    provider = _CountingFakeEmbeddingProvider(dimensions=1024)
+    app.dependency_overrides[get_embedding_provider] = lambda: provider
+    yield provider
+    app.dependency_overrides.pop(get_embedding_provider, None)
 
 
 @pytest.mark.asyncio
@@ -294,6 +313,91 @@ async def test_process_document_rejects_cross_org_venture(temp_storage_dir):
 
             response = await client.post(
                 f"/api/ventures/{venture_a_id}/documents/{document_id}/process",
+                headers=headers_b,
+            )
+        assert response.status_code == 404
+    finally:
+        async with async_session() as session:
+            await _cleanup(session, org_a_slug, user_a_email)
+        async with async_session() as session:
+            await _cleanup(session, org_b_slug, user_b_email)
+
+
+@pytest.mark.asyncio
+async def test_embed_document_is_idempotent(temp_storage_dir, fake_embedder):
+    suffix = uuid.uuid4().hex[:8]
+    async with async_session() as session:
+        org_slug, user_email, venture_id = await _seed_org_user_venture(session, suffix)
+
+    try:
+        transport = ASGITransport(app=app)
+        headers = {"X-Dev-User-Email": user_email, "X-Dev-Organization-Slug": org_slug}
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            upload_response = await client.post(
+                f"/api/ventures/{venture_id}/documents",
+                headers=headers,
+                files={"file": ("notes.txt", b"Some content about a marketplace.", "text/plain")},
+            )
+            document_id = upload_response.json()["id"]
+
+            await client.post(
+                f"/api/ventures/{venture_id}/documents/{document_id}/process", headers=headers
+            )
+
+            embed_response = await client.post(
+                f"/api/ventures/{venture_id}/documents/{document_id}/embed", headers=headers
+            )
+            assert embed_response.json() == {"embedded_count": 1}
+            assert fake_embedder.call_count == 1
+
+            second_embed_response = await client.post(
+                f"/api/ventures/{venture_id}/documents/{document_id}/embed", headers=headers
+            )
+            assert second_embed_response.json() == {"embedded_count": 0}
+            assert fake_embedder.call_count == 1  # not called again -- nothing to embed
+
+        async with async_session() as session:
+            org = (
+                await session.execute(select(Organization).where(Organization.slug == org_slug))
+            ).scalar_one()
+            await set_current_organization(session, org.id)
+            chunk = (
+                await session.execute(
+                    select(DocumentChunk).where(
+                        DocumentChunk.document_id == uuid.UUID(document_id)
+                    )
+                )
+            ).scalar_one()
+            assert chunk.embedding is not None
+            assert len(chunk.embedding) == 1024
+    finally:
+        async with async_session() as session:
+            await _cleanup(session, org_slug, user_email)
+
+
+@pytest.mark.asyncio
+async def test_embed_document_rejects_cross_org_venture(temp_storage_dir, fake_embedder):
+    suffix_a = uuid.uuid4().hex[:8]
+    suffix_b = uuid.uuid4().hex[:8]
+    async with async_session() as session:
+        org_a_slug, user_a_email, venture_a_id = await _seed_org_user_venture(session, suffix_a)
+    async with async_session() as session:
+        org_b_slug, user_b_email, _ = await _seed_org_user_venture(session, suffix_b)
+
+    try:
+        transport = ASGITransport(app=app)
+        headers_a = {"X-Dev-User-Email": user_a_email, "X-Dev-Organization-Slug": org_a_slug}
+        headers_b = {"X-Dev-User-Email": user_b_email, "X-Dev-Organization-Slug": org_b_slug}
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            upload_response = await client.post(
+                f"/api/ventures/{venture_a_id}/documents",
+                headers=headers_a,
+                files={"file": ("notes.txt", b"Some content.", "text/plain")},
+            )
+            document_id = upload_response.json()["id"]
+
+            response = await client.post(
+                f"/api/ventures/{venture_a_id}/documents/{document_id}/embed",
                 headers=headers_b,
             )
         assert response.status_code == 404

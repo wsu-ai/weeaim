@@ -1,6 +1,7 @@
 from functools import lru_cache
 
 from app.ai.base import AIProvider
+from app.ai.embedding_provider import EmbeddingProvider, OpenAIEmbeddingProvider
 from app.ai.openai_provider import OpenAIProvider
 from app.config import settings
 from app.storage.base import StorageAdapter
@@ -10,6 +11,16 @@ from app.storage.local import LocalFilesystemStorageAdapter
 @lru_cache
 def get_ai_provider() -> AIProvider:
     return OpenAIProvider(api_key=settings.openai_api_key, model=settings.openai_model)
+
+
+@lru_cache
+def get_embedding_provider() -> EmbeddingProvider:
+    return OpenAIEmbeddingProvider(
+        api_key=settings.openai_api_key,
+        model=settings.embedding_model,
+        dimensions=settings.embedding_dimensions,
+        batch_size=settings.embedding_batch_size,
+    )
 
 
 @lru_cache

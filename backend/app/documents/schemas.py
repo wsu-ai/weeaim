@@ -20,3 +20,7 @@ class DocumentRead(BaseModel):
 class DocumentProcessResult(BaseModel):
     document: DocumentRead
     chunk_count: int
+
+
+class DocumentEmbedResult(BaseModel):
+    embedded_count: int
