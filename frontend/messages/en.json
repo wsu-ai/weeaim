@@ -1,0 +1,14 @@
+{
+  "IdeaIntake": {
+    "title": "Validate your venture idea",
+    "description": "Start by describing your business idea in your own words. We'll walk you through structuring it into a testable hypothesis next.",
+    "label": "Describe your business idea",
+    "placeholder": "e.g. An AI-powered cooking assistant for Korean recipes targeting U.S. households.",
+    "errorTooShort": "Please describe your idea in at least 20 characters.",
+    "errorTooLong": "Please keep your idea under 2000 characters.",
+    "submit": "Submit idea",
+    "submitting": "Submitting...",
+    "confirmationTitle": "Idea received",
+    "confirmationBody": "Thanks -- we've received your idea. The next step (AI-assisted structuring) isn't connected yet."
+  }
+}
