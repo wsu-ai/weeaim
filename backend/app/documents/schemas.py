@@ -15,3 +15,8 @@ class DocumentRead(BaseModel):
     classification: str
     processing_status: str
     created_at: datetime
+
+
+class DocumentProcessResult(BaseModel):
+    document: DocumentRead
+    chunk_count: int

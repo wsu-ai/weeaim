@@ -6,3 +6,6 @@ asyncpg
 alembic
 openai
 python-multipart
+pypdf
+python-docx
+openpyxl

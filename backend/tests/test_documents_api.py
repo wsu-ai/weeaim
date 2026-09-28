@@ -10,7 +10,15 @@ from app import config
 from app.db import async_session
 from app.dependencies import get_storage_adapter
 from app.main import app
-from app.models import AuditLog, Document, Organization, OrganizationMember, User, Venture
+from app.models import (
+    AuditLog,
+    Document,
+    DocumentChunk,
+    Organization,
+    OrganizationMember,
+    User,
+    Venture,
+)
 from app.storage.local import LocalFilesystemStorageAdapter
 from app.tenancy import set_current_organization
 
@@ -46,6 +54,7 @@ async def _cleanup(session, org_slug: str, user_email: str) -> None:
     if org is not None:
         await set_current_organization(session, org.id)
         await session.execute(AuditLog.__table__.delete())
+        await session.execute(DocumentChunk.__table__.delete())
         await session.execute(Document.__table__.delete())
         await session.execute(Venture.__table__.delete())
         await session.execute(
@@ -212,3 +221,84 @@ async def test_delete_document_removes_file_and_excludes_from_list(temp_storage_
     finally:
         async with async_session() as session:
             await _cleanup(session, org_slug, user_email)
+
+
+@pytest.mark.asyncio
+async def test_process_document_creates_chunks_and_is_idempotent(temp_storage_dir):
+    suffix = uuid.uuid4().hex[:8]
+    async with async_session() as session:
+        org_slug, user_email, venture_id = await _seed_org_user_venture(session, suffix)
+
+    try:
+        transport = ASGITransport(app=app)
+        headers = {"X-Dev-User-Email": user_email, "X-Dev-Organization-Slug": org_slug}
+        text_content = b"This document describes a marketplace for local produce."
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            upload_response = await client.post(
+                f"/api/ventures/{venture_id}/documents",
+                headers=headers,
+                files={"file": ("notes.txt", text_content, "text/plain")},
+            )
+            document_id = upload_response.json()["id"]
+
+            process_response = await client.post(
+                f"/api/ventures/{venture_id}/documents/{document_id}/process", headers=headers
+            )
+            assert process_response.status_code == 200
+            body = process_response.json()
+            assert body["chunk_count"] == 1
+            assert body["document"]["processing_status"] == "processed"
+
+            second_process_response = await client.post(
+                f"/api/ventures/{venture_id}/documents/{document_id}/process", headers=headers
+            )
+            assert second_process_response.json()["chunk_count"] == 1
+
+        async with async_session() as session:
+            await set_current_organization(session, (
+                await session.execute(select(Organization).where(Organization.slug == org_slug))
+            ).scalar_one().id)
+            chunks = (
+                await session.execute(
+                    select(DocumentChunk).where(DocumentChunk.document_id == uuid.UUID(document_id))
+                )
+            ).scalars().all()
+            assert len(chunks) == 1
+            assert "marketplace for local produce" in chunks[0].content
+            assert chunks[0].chunk_metadata["language"] == "en"
+    finally:
+        async with async_session() as session:
+            await _cleanup(session, org_slug, user_email)
+
+
+@pytest.mark.asyncio
+async def test_process_document_rejects_cross_org_venture(temp_storage_dir):
+    suffix_a = uuid.uuid4().hex[:8]
+    suffix_b = uuid.uuid4().hex[:8]
+    async with async_session() as session:
+        org_a_slug, user_a_email, venture_a_id = await _seed_org_user_venture(session, suffix_a)
+    async with async_session() as session:
+        org_b_slug, user_b_email, _ = await _seed_org_user_venture(session, suffix_b)
+
+    try:
+        transport = ASGITransport(app=app)
+        headers_a = {"X-Dev-User-Email": user_a_email, "X-Dev-Organization-Slug": org_a_slug}
+        headers_b = {"X-Dev-User-Email": user_b_email, "X-Dev-Organization-Slug": org_b_slug}
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            upload_response = await client.post(
+                f"/api/ventures/{venture_a_id}/documents",
+                headers=headers_a,
+                files={"file": ("notes.txt", b"Some content.", "text/plain")},
+            )
+            document_id = upload_response.json()["id"]
+
+            response = await client.post(
+                f"/api/ventures/{venture_a_id}/documents/{document_id}/process",
+                headers=headers_b,
+            )
+        assert response.status_code == 404
+    finally:
+        async with async_session() as session:
+            await _cleanup(session, org_a_slug, user_a_email)
+        async with async_session() as session:
+            await _cleanup(session, org_b_slug, user_b_email)

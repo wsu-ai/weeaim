@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import UTC, datetime
 
@@ -9,13 +10,33 @@ from app.auth import AuthContext, get_auth_context
 from app.config import settings
 from app.db import get_session
 from app.dependencies import get_storage_adapter
-from app.documents.schemas import DocumentRead
+from app.documents.extraction import extract_document
+from app.documents.schemas import DocumentProcessResult, DocumentRead
 from app.documents.validation import DocumentValidationError, validate_upload
-from app.models import AuditLog, Document
+from app.models import AuditLog, Document, DocumentChunk
 from app.routers.ventures import _load_venture
 from app.storage.base import StorageAdapter
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/ventures", tags=["documents"])
+
+
+async def _load_document(
+    session: AsyncSession, venture_id: uuid.UUID, document_id: uuid.UUID
+) -> Document:
+    document = (
+        await session.execute(
+            select(Document).where(
+                Document.id == document_id,
+                Document.venture_id == venture_id,
+                Document.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if document is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return document
 
 
 @router.post("/{venture_id}/documents", response_model=DocumentRead, status_code=201)
@@ -93,17 +114,7 @@ async def delete_document(
     storage: StorageAdapter = Depends(get_storage_adapter),
 ) -> None:
     venture = await _load_venture(session, auth, venture_id)
-    document = (
-        await session.execute(
-            select(Document).where(
-                Document.id == document_id,
-                Document.venture_id == venture.id,
-                Document.deleted_at.is_(None),
-            )
-        )
-    ).scalar_one_or_none()
-    if document is None:
-        raise HTTPException(status_code=404, detail="Document not found")
+    document = await _load_document(session, venture.id, document_id)
 
     document.deleted_at = datetime.now(UTC)
     document.processing_status = "deleted"
@@ -119,3 +130,71 @@ async def delete_document(
         )
     )
     await session.commit()
+
+
+@router.post(
+    "/{venture_id}/documents/{document_id}/process", response_model=DocumentProcessResult
+)
+async def process_document(
+    venture_id: uuid.UUID,
+    document_id: uuid.UUID,
+    auth: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_session),
+    storage: StorageAdapter = Depends(get_storage_adapter),
+) -> DocumentProcessResult:
+    venture = await _load_venture(session, auth, venture_id)
+    document = await _load_document(session, venture.id, document_id)
+
+    ext = document.storage_key[document.storage_key.rfind(".") :]
+    content = await storage.read(document.storage_key)
+
+    try:
+        chunks = extract_document(ext, content)
+    except Exception:
+        logger.exception("Failed to extract document %s", document.id)
+        document.processing_status = "failed"
+        session.add(
+            AuditLog(
+                organization_id=auth.organization_id,
+                actor_user_id=auth.user_id,
+                action="document.process",
+                resource_type="document",
+                resource_id=document.id,
+            )
+        )
+        await session.commit()
+        return DocumentProcessResult(document=DocumentRead.model_validate(document), chunk_count=0)
+
+    await session.execute(
+        DocumentChunk.__table__.delete().where(DocumentChunk.document_id == document.id)
+    )
+
+    for index, chunk in enumerate(chunks):
+        session.add(
+            DocumentChunk(
+                organization_id=auth.organization_id,
+                venture_id=venture.id,
+                document_id=document.id,
+                chunk_index=index,
+                content=chunk.content,
+                page_number=chunk.page_number,
+                section_heading=chunk.section_heading,
+                chunk_metadata=chunk.metadata,
+            )
+        )
+
+    document.processing_status = "processed"
+    session.add(
+        AuditLog(
+            organization_id=auth.organization_id,
+            actor_user_id=auth.user_id,
+            action="document.process",
+            resource_type="document",
+            resource_id=document.id,
+        )
+    )
+    await session.commit()
+
+    return DocumentProcessResult(
+        document=DocumentRead.model_validate(document), chunk_count=len(chunks)
+    )
