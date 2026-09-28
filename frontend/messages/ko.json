@@ -8,8 +8,6 @@
     "errorTooLong": "아이디어는 2000자 이하로 입력해 주세요.",
     "submit": "아이디어 제출",
     "submitting": "제출 중...",
-    "confirmationTitle": "아이디어가 확정되었습니다",
-    "confirmationBody": "아이디어가 분석되어 저장되었습니다. 다음 단계(가이드 검증)는 아직 연결되어 있지 않습니다.",
     "errorSubmitFailed": "아이디어 제출 중 문제가 발생했습니다. 다시 시도해 주세요."
   },
   "IdeaConfirmation": {
@@ -26,5 +24,28 @@
     "confirming": "저장 중...",
     "errorInterpretFailed": "아이디어 분석에 실패했습니다. 다시 시도해 주세요.",
     "errorConfirmFailed": "확정 내용을 저장하지 못했습니다. 다시 시도해 주세요."
+  },
+  "Wizard": {
+    "pageTitle": "벤처 위저드",
+    "comingSoon": "준비 중",
+    "statusNotStarted": "시작 전",
+    "statusInProgress": "진행 중",
+    "statusCompleted": "완료",
+    "statusAwaitingUser": "AI 피드백 확인 필요",
+    "statusNeedsRevision": "재검토 필요",
+    "saving": "저장 중...",
+    "saved": "저장됨",
+    "markComplete": "완료로 표시",
+    "getFeedback": "AI 피드백 받기",
+    "analyzing": "분석 중...",
+    "feedbackTitle": "AI 피드백",
+    "feedbackStrengths": "강점",
+    "feedbackGaps": "부족한 점",
+    "feedbackNextSteps": "제안하는 다음 단계",
+    "revisionBanner": "이전 단계가 변경되었습니다. 이 단계를 다시 검토해 주세요.",
+    "noStageSelected": "시작하려면 단계를 선택하세요.",
+    "errorLoadFailed": "이 벤처의 단계를 불러오지 못했습니다.",
+    "errorSaveFailed": "답변을 저장하지 못했습니다. 다시 시도해 주세요.",
+    "errorAnalyzeFailed": "AI 피드백을 받지 못했습니다. 다시 시도해 주세요."
   }
 }

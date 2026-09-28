@@ -23,6 +23,31 @@ export type IdeaInterpretation = {
   confidence: number;
 };
 
+export type StageField = {
+  name: string;
+  label_en: string;
+  label_ko: string;
+  type: "text" | "list";
+};
+
+export type WizardStageStatus = {
+  slug: string;
+  number: number;
+  title_en: string;
+  title_ko: string;
+  implemented: boolean;
+  status: string;
+  answers: Record<string, unknown> | null;
+  ai_analysis: {
+    summary: string;
+    strengths: string[];
+    gaps: string[];
+    suggested_next_steps: string[];
+    confidence: number;
+  } | null;
+  question_schema?: { fields: StageField[] } | null;
+};
+
 // Dev-only headers standing in for real auth -- see backend/app/auth.py.
 // Removed once a real identity provider is wired up.
 function devAuthHeaders(): HeadersInit {
@@ -58,6 +83,51 @@ export async function interpretIdea(ventureId: string): Promise<IdeaInterpretati
   }
 
   return response.json();
+}
+
+export async function listStages(ventureId: string): Promise<WizardStageStatus[]> {
+  const response = await fetch(`${API_URL}/api/ventures/${ventureId}/stages`, {
+    headers: devAuthHeaders(),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to list stages: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function updateStage(
+  ventureId: string,
+  stageSlug: string,
+  body: { answers: Record<string, unknown>; complete: boolean },
+): Promise<void> {
+  const response = await fetch(
+    `${API_URL}/api/ventures/${ventureId}/stages/${stageSlug}`,
+    {
+      method: "PUT",
+      headers: devAuthHeaders(),
+      body: JSON.stringify(body),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to update stage: ${response.status}`);
+  }
+}
+
+export async function analyzeStage(ventureId: string, stageSlug: string): Promise<void> {
+  const response = await fetch(
+    `${API_URL}/api/ventures/${ventureId}/stages/${stageSlug}/analyze`,
+    {
+      method: "POST",
+      headers: devAuthHeaders(),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to analyze stage: ${response.status}`);
+  }
 }
 
 export async function confirmIdea(

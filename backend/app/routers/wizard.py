@@ -70,6 +70,7 @@ async def list_stages(
             ai_analysis=(
                 responses_by_stage_id[stage.id].ai_analysis if stage.id in responses_by_stage_id else None
             ),
+            question_schema=stage.question_schema,
         )
         for stage in stages
     ]

@@ -37,6 +37,7 @@ class StageStatus(BaseModel):
     status: str
     answers: dict | None = None
     ai_analysis: dict | None = None
+    question_schema: dict | None = None
 
 
 class StageResponseRead(BaseModel):

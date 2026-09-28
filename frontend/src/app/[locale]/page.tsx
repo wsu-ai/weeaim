@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { useRouter } from "@/i18n/navigation";
 import {
   confirmIdea,
   createVenture,
@@ -29,10 +30,10 @@ type IdeaFormValues = { idea: string };
 export default function IdeaIntakePage() {
   const t = useTranslations("IdeaIntake");
   const tc = useTranslations("IdeaConfirmation");
+  const router = useRouter();
 
   const [ventureId, setVentureId] = useState<string | null>(null);
   const [interpretation, setInterpretation] = useState<IdeaInterpretation | null>(null);
-  const [confirmed, setConfirmed] = useState(false);
 
   const ideaSchema = z.object({
     idea: z
@@ -69,21 +70,10 @@ export default function IdeaIntakePage() {
       if (!ventureId) throw new Error("Missing venture id");
       return confirmIdea(ventureId, values);
     },
-    onSuccess: () => setConfirmed(true),
+    onSuccess: () => {
+      if (ventureId) router.push(`/ventures/${ventureId}`);
+    },
   });
-
-  if (confirmed) {
-    return (
-      <main className="flex flex-1 items-center justify-center p-6">
-        <Card className="w-full max-w-xl">
-          <CardContent className="pt-6" role="status">
-            <h2 className="font-semibold">{t("confirmationTitle")}</h2>
-            <p className="text-muted-foreground mt-1 text-sm">{t("confirmationBody")}</p>
-          </CardContent>
-        </Card>
-      </main>
-    );
-  }
 
   if (interpretation) {
     return (

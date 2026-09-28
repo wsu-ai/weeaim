@@ -8,8 +8,6 @@
     "errorTooLong": "Please keep your idea under 2000 characters.",
     "submit": "Submit idea",
     "submitting": "Submitting...",
-    "confirmationTitle": "Idea confirmed",
-    "confirmationBody": "Your idea has been analyzed and saved. The next step (guided validation) isn't connected yet.",
     "errorSubmitFailed": "Something went wrong submitting your idea. Please try again."
   },
   "IdeaConfirmation": {
@@ -26,5 +24,28 @@
     "confirming": "Saving...",
     "errorInterpretFailed": "We couldn't analyze your idea. Please try again.",
     "errorConfirmFailed": "We couldn't save your confirmation. Please try again."
+  },
+  "Wizard": {
+    "pageTitle": "Venture wizard",
+    "comingSoon": "Coming soon",
+    "statusNotStarted": "Not started",
+    "statusInProgress": "In progress",
+    "statusCompleted": "Completed",
+    "statusAwaitingUser": "Review AI feedback",
+    "statusNeedsRevision": "Needs revision",
+    "saving": "Saving...",
+    "saved": "Saved",
+    "markComplete": "Mark complete",
+    "getFeedback": "Get AI feedback",
+    "analyzing": "Analyzing...",
+    "feedbackTitle": "AI feedback",
+    "feedbackStrengths": "Strengths",
+    "feedbackGaps": "Gaps",
+    "feedbackNextSteps": "Suggested next steps",
+    "revisionBanner": "An earlier stage changed. Please review this stage again.",
+    "noStageSelected": "Select a stage to get started.",
+    "errorLoadFailed": "We couldn't load this venture's stages.",
+    "errorSaveFailed": "We couldn't save your answer. Please try again.",
+    "errorAnalyzeFailed": "We couldn't get AI feedback. Please try again."
   }
 }

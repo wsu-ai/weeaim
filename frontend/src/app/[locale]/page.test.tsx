@@ -6,6 +6,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import messages from "../../../messages/en.json";
 import IdeaIntakePage from "./page";
 
+const pushMock = vi.fn();
+vi.mock("@/i18n/navigation", () => ({
+  useRouter: () => ({ push: pushMock }),
+}));
+
 function renderPage() {
   const queryClient = new QueryClient();
   return render(
@@ -36,6 +41,7 @@ function jsonResponse(body: unknown, ok = true) {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  pushMock.mockClear();
 });
 
 describe("IdeaIntakePage", () => {
@@ -91,10 +97,6 @@ describe("IdeaIntakePage", () => {
       screen.getByRole("button", { name: messages.IdeaConfirmation.confirm }),
     );
 
-    await waitFor(() =>
-      expect(screen.getByRole("status")).toHaveTextContent(
-        messages.IdeaIntake.confirmationTitle,
-      ),
-    );
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/ventures/venture-1"));
   });
 });
