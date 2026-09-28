@@ -1,0 +1,9 @@
+from typing import Protocol
+
+
+class StorageAdapter(Protocol):
+    async def save(self, key: str, content: bytes) -> None: ...
+
+    async def read(self, key: str) -> bytes: ...
+
+    async def delete(self, key: str) -> None: ...

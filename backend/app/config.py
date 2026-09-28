@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     environment: str = "development"
     openai_api_key: str = ""
     openai_model: str = "gpt-6-astra"
+    upload_storage_dir: str = "./storage/uploads"
+    max_upload_size_bytes: int = 20_000_000
 
 
 settings = Settings()
