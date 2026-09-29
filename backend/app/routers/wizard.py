@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.base import AIProvider
@@ -11,10 +11,15 @@ from app.ai.schemas import StageAnalysis
 from app.auth import AuthContext, get_auth_context
 from app.db import get_session
 from app.dependencies import get_ai_provider
-from app.models import AuditLog, WizardResponse, WizardStage
+from app.models import AuditLog, WizardResponse, WizardResponseRevision, WizardStage
 from app.routers.ventures import _load_venture
 from app.tenancy import set_current_organization
-from app.wizard.schemas import StageResponseRead, StageStatus, StageUpdateRequest
+from app.wizard.schemas import (
+    StageResponseRead,
+    StageRevisionRead,
+    StageStatus,
+    StageUpdateRequest,
+)
 from app.wizard.stages import STAGE_ANSWER_SCHEMAS
 
 router = APIRouter(prefix="/api/ventures", tags=["wizard"])
@@ -107,6 +112,24 @@ async def update_stage(
         )
         session.add(response)
     else:
+        # Snapshot what's being replaced before overwriting -- CLAUDE.md:
+        # "don't silently overwrite earlier answers."
+        existing_revision_count = (
+            await session.execute(
+                select(func.count())
+                .select_from(WizardResponseRevision)
+                .where(WizardResponseRevision.wizard_response_id == response.id)
+            )
+        ).scalar_one()
+        session.add(
+            WizardResponseRevision(
+                wizard_response_id=response.id,
+                venture_id=venture.id,
+                version_number=existing_revision_count + 1,
+                answers=response.answers,
+                status=response.status,
+            )
+        )
         response.answers = validated_answers.model_dump()
         response.status = "in_progress"
 
@@ -185,3 +208,28 @@ async def analyze_stage(
     )
     await session.commit()
     return analysis
+
+
+@router.get(
+    "/{venture_id}/stages/{stage_slug}/revisions", response_model=list[StageRevisionRead]
+)
+async def list_stage_revisions(
+    venture_id: uuid.UUID,
+    stage_slug: str,
+    auth: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_session),
+) -> list[WizardResponseRevision]:
+    venture = await _load_venture(session, auth, venture_id)
+    stage = await _get_stage_or_404(session, stage_slug)
+    response = await _get_response(session, venture.id, stage.id)
+    if response is None:
+        return []
+
+    revisions = (
+        await session.execute(
+            select(WizardResponseRevision)
+            .where(WizardResponseRevision.wizard_response_id == response.id)
+            .order_by(WizardResponseRevision.version_number)
+        )
+    ).scalars().all()
+    return list(revisions)

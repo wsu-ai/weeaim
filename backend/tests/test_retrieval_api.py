@@ -10,7 +10,6 @@ from app.db import async_session
 from app.dependencies import get_embedding_provider
 from app.main import app
 from app.models import (
-    AuditLog,
     Document,
     DocumentChunk,
     Organization,
@@ -82,7 +81,8 @@ async def _cleanup(session, org_slug: str, user_email: str) -> None:
     ).scalar_one_or_none()
     if org is not None:
         await set_current_organization(session, org.id)
-        await session.execute(AuditLog.__table__.delete())
+        # No AuditLog delete: immutable to the app; ON DELETE SET NULL on its
+        # organization FK means it won't block this cleanup.
         await session.execute(DocumentChunk.__table__.delete())
         await session.execute(Document.__table__.delete())
         await session.execute(Venture.__table__.delete())

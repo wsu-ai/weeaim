@@ -9,12 +9,12 @@ from app.db import async_session
 from app.dependencies import get_ai_provider
 from app.main import app
 from app.models import (
-    AuditLog,
     Organization,
     OrganizationMember,
     User,
     Venture,
     WizardResponse,
+    WizardResponseRevision,
 )
 from app.tenancy import set_current_organization
 
@@ -61,7 +61,9 @@ async def _cleanup(session, org_slug: str, user_email: str) -> None:
     ).scalar_one_or_none()
     if org is not None:
         await set_current_organization(session, org.id)
-        await session.execute(AuditLog.__table__.delete())
+        # No AuditLog delete: immutable to the app; ON DELETE SET NULL on its
+        # organization FK means it won't block this cleanup.
+        await session.execute(WizardResponseRevision.__table__.delete())
         await session.execute(WizardResponse.__table__.delete())
         await session.execute(Venture.__table__.delete())
         await session.execute(
@@ -265,6 +267,73 @@ async def test_stages_reject_cross_org_venture():
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get(
                 f"/api/ventures/{venture_a_id}/stages",
+                headers={"X-Dev-User-Email": user_b_email, "X-Dev-Organization-Slug": org_b_slug},
+            )
+        assert response.status_code == 404
+    finally:
+        async with async_session() as session:
+            await _cleanup(session, org_a_slug, user_a_email)
+        async with async_session() as session:
+            await _cleanup(session, org_b_slug, user_b_email)
+
+
+@pytest.mark.asyncio
+async def test_first_save_creates_no_revision_second_save_snapshots_original():
+    suffix = uuid.uuid4().hex[:8]
+    async with async_session() as session:
+        org_slug, user_email, venture_id = await _seed_org_user_venture(session, suffix)
+
+    try:
+        transport = ASGITransport(app=app)
+        headers = {"X-Dev-User-Email": user_email, "X-Dev-Organization-Slug": org_slug}
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            await client.put(
+                f"/api/ventures/{venture_id}/stages/problem_definition",
+                json={"answers": VALID_PROBLEM_ANSWERS, "complete": False},
+                headers=headers,
+            )
+            revisions_after_first_save = await client.get(
+                f"/api/ventures/{venture_id}/stages/problem_definition/revisions",
+                headers=headers,
+            )
+            assert revisions_after_first_save.json() == []
+
+            updated_answers = {
+                **VALID_PROBLEM_ANSWERS,
+                "problem_statement": "A revised problem statement.",
+            }
+            await client.put(
+                f"/api/ventures/{venture_id}/stages/problem_definition",
+                json={"answers": updated_answers, "complete": False},
+                headers=headers,
+            )
+            revisions_after_second_save = await client.get(
+                f"/api/ventures/{venture_id}/stages/problem_definition/revisions",
+                headers=headers,
+            )
+        revisions = revisions_after_second_save.json()
+        assert len(revisions) == 1
+        assert revisions[0]["version_number"] == 1
+        assert revisions[0]["answers"]["problem_statement"] == VALID_PROBLEM_ANSWERS["problem_statement"]
+    finally:
+        async with async_session() as session:
+            await _cleanup(session, org_slug, user_email)
+
+
+@pytest.mark.asyncio
+async def test_stage_revisions_reject_cross_org_venture():
+    suffix_a = uuid.uuid4().hex[:8]
+    suffix_b = uuid.uuid4().hex[:8]
+    async with async_session() as session:
+        org_a_slug, user_a_email, venture_a_id = await _seed_org_user_venture(session, suffix_a)
+    async with async_session() as session:
+        org_b_slug, user_b_email, _ = await _seed_org_user_venture(session, suffix_b)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                f"/api/ventures/{venture_a_id}/stages/problem_definition/revisions",
                 headers={"X-Dev-User-Email": user_b_email, "X-Dev-Organization-Slug": org_b_slug},
             )
         assert response.status_code == 404

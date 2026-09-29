@@ -6,7 +6,7 @@ from app.models.evidence import EvidenceItem
 from app.models.organization import Organization, OrganizationMember
 from app.models.user import User
 from app.models.venture import IdeaVersion, Venture, VentureMember
-from app.models.wizard import WizardResponse, WizardStage
+from app.models.wizard import WizardResponse, WizardResponseRevision, WizardStage
 
 __all__ = [
     "Base",
@@ -18,6 +18,7 @@ __all__ = [
     "IdeaVersion",
     "WizardStage",
     "WizardResponse",
+    "WizardResponseRevision",
     "Document",
     "DocumentChunk",
     "EvidenceItem",

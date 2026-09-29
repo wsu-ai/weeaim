@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
-from app.models.base import TimestampMixin, UUIDPKMixin
+from app.models.base import CreatedAtMixin, TimestampMixin, UUIDPKMixin
 
 
 class WizardStage(Base, UUIDPKMixin, TimestampMixin):
@@ -42,3 +42,24 @@ class WizardResponse(Base, UUIDPKMixin, TimestampMixin):
     answers: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
     ai_analysis: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class WizardResponseRevision(Base, UUIDPKMixin, CreatedAtMixin):
+    """Snapshot of a wizard_responses row's answers/status just before it was overwritten."""
+
+    __tablename__ = "wizard_response_revisions"
+    __table_args__ = (
+        UniqueConstraint(
+            "wizard_response_id", "version_number", name="uq_wizard_response_revision"
+        ),
+    )
+
+    wizard_response_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("wizard_responses.id"), nullable=False, index=True
+    )
+    venture_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("ventures.id"), nullable=False, index=True
+    )
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    answers: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)

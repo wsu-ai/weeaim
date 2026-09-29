@@ -47,3 +47,10 @@ class StageResponseRead(BaseModel):
     answers: dict
     ai_analysis: dict | None
     completed_at: datetime | None
+
+
+class StageRevisionRead(BaseModel):
+    version_number: int
+    answers: dict
+    status: str
+    created_at: datetime

@@ -7,7 +7,7 @@ from sqlalchemy import delete, select
 from app import config
 from app.db import async_session
 from app.main import app
-from app.models import AuditLog, Organization, OrganizationMember, User, Venture
+from app.models import Organization, OrganizationMember, User, Venture
 from app.tenancy import set_current_organization
 
 
@@ -27,7 +27,8 @@ async def _cleanup(session, org_slug: str, user_email: str) -> None:
     ).scalar_one_or_none()
     if org is not None:
         await set_current_organization(session, org.id)
-        await session.execute(AuditLog.__table__.delete())
+        # No AuditLog delete: audit_logs is immutable to the app; its FK to
+        # organizations is ON DELETE SET NULL, so it won't block this cleanup.
         await session.execute(Venture.__table__.delete())
         await session.execute(
             delete(OrganizationMember).where(OrganizationMember.organization_id == org.id)
