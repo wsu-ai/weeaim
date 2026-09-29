@@ -1,4 +1,4 @@
-from app.ai.schemas import IdeaInterpretation, StageAnalysis
+from app.ai.schemas import IdeaInterpretation, ReportSynthesis, StageAnalysis
 
 
 class FakeAIProvider:
@@ -27,5 +27,16 @@ class FakeAIProvider:
             strengths=["Clear answer provided."],
             gaps=["No real evidence attached yet."],
             suggested_next_steps=["Run a customer interview."],
+            confidence=0.5,
+        )
+
+    async def produce_report(
+        self, idea_context: str, stage_summaries: list[dict], evidence: list[dict]
+    ) -> ReportSynthesis:
+        return ReportSynthesis(
+            summary=f"Fake preliminary report for: {idea_context[:80]}",
+            key_strengths=["Clear idea statement."],
+            key_risks=["Limited evidence collected so far."],
+            recommendation="Proceed to the next validation stage.",
             confidence=0.5,
         )

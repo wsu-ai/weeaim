@@ -17,3 +17,11 @@ class StageAnalysis(BaseModel):
     gaps: list[str]
     suggested_next_steps: list[str]
     confidence: float = Field(ge=0, le=1)
+
+
+class ReportSynthesis(BaseModel):
+    summary: str
+    key_strengths: list[str]
+    key_risks: list[str]
+    recommendation: str
+    confidence: float = Field(ge=0, le=1)

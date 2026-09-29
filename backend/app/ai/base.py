@@ -1,6 +1,6 @@
 from typing import Protocol
 
-from app.ai.schemas import IdeaInterpretation, StageAnalysis
+from app.ai.schemas import IdeaInterpretation, ReportSynthesis, StageAnalysis
 
 
 class AIProvider(Protocol):
@@ -9,3 +9,7 @@ class AIProvider(Protocol):
     async def analyze_stage(
         self, stage_slug: str, idea_context: str, answers: dict
     ) -> StageAnalysis: ...
+
+    async def produce_report(
+        self, idea_context: str, stage_summaries: list[dict], evidence: list[dict]
+    ) -> ReportSynthesis: ...
