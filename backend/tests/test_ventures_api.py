@@ -116,7 +116,9 @@ async def test_create_venture_rejects_short_idea():
 
 
 @pytest.mark.asyncio
-async def test_auth_disabled_in_production(monkeypatch):
+async def test_dev_headers_ignored_in_production(monkeypatch):
+    # Production authenticates only via the session cookie (Google sign-in);
+    # the dev headers must not grant access there.
     monkeypatch.setattr(config.settings, "environment", "production")
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -128,4 +130,43 @@ async def test_auth_disabled_in_production(monkeypatch):
                 "X-Dev-Organization-Slug": "dev-org",
             },
         )
-    assert response.status_code == 501
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_get_venture_returns_it_to_its_organization_only():
+    suffix_a = uuid.uuid4().hex[:8]
+    suffix_b = uuid.uuid4().hex[:8]
+    async with async_session() as session:
+        org_a, email_a = await _seed_org_user(session, suffix_a)
+    async with async_session() as session:
+        org_b, email_b = await _seed_org_user(session, suffix_b)
+    headers_a = {"X-Dev-User-Email": email_a, "X-Dev-Organization-Slug": org_a}
+    headers_b = {"X-Dev-User-Email": email_b, "X-Dev-Organization-Slug": org_b}
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            created = await client.post(
+                "/api/ventures",
+                json={"idea": "An AI-powered cooking assistant for Korean recipes."},
+                headers=headers_a,
+            )
+            venture_id = created.json()["id"]
+
+            own = await client.get(f"/api/ventures/{venture_id}", headers=headers_a)
+            other_org = await client.get(f"/api/ventures/{venture_id}", headers=headers_b)
+            unknown = await client.get(f"/api/ventures/{uuid.uuid4()}", headers=headers_a)
+            signed_out = await client.get(f"/api/ventures/{venture_id}")
+
+        assert own.status_code == 200
+        assert own.json()["id"] == venture_id
+        assert own.json()["title"].startswith("An AI-powered cooking assistant")
+        assert other_org.status_code == 404
+        assert unknown.status_code == 404
+        assert signed_out.status_code == 401
+    finally:
+        async with async_session() as session:
+            await _cleanup(session, org_a, email_a)
+        async with async_session() as session:
+            await _cleanup(session, org_b, email_b)

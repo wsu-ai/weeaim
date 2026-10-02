@@ -1,187 +1,285 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation } from "@tanstack/react-query";
-import { useTranslations } from "next-intl";
-import { useEffect, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { useLocale, useTranslations } from "next-intl";
+import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
+import { AuthShell } from "@/components/auth-shell";
+import { GoogleSignInButton } from "@/components/google-sign-in-button";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { useRouter } from "@/i18n/navigation";
+import { Link, useRouter } from "@/i18n/navigation";
 import {
-  confirmIdea,
-  createVenture,
-  interpretIdea,
-  type IdeaInterpretation,
+  devLogin,
+  getAuthConfig,
+  googleLogin,
+  logout,
+  passwordLogin,
+  selectOrganization,
 } from "@/lib/api";
+import { authErrorMessage, errorDetail } from "@/lib/auth-errors";
+import { useSession, useSetSession } from "@/lib/session";
 
-type IdeaFormValues = { idea: string };
+type PasswordFormValues = { email: string; password: string };
+type DevLoginFormValues = { email: string };
 
-export default function IdeaIntakePage() {
-  const t = useTranslations("IdeaIntake");
-  const tc = useTranslations("IdeaConfirmation");
+const HOME_AFTER_LOGIN = "/ventures";
+
+export default function LoginPage() {
+  const t = useTranslations("Login");
+  const locale = useLocale();
   const router = useRouter();
+  const session = useSession().data;
+  const setSession = useSetSession();
+  const configQuery = useQuery({ queryKey: ["auth-config"], queryFn: getAuthConfig });
+  const config = configQuery.data;
 
-  const [ventureId, setVentureId] = useState<string | null>(null);
-  const [interpretation, setInterpretation] = useState<IdeaInterpretation | null>(null);
-
-  const ideaSchema = z.object({
-    idea: z
-      .string()
-      .min(20, { message: t("errorTooShort") })
-      .max(2000, { message: t("errorTooLong") }),
-  });
-
-  const ideaForm = useForm<IdeaFormValues>({ resolver: zodResolver(ideaSchema) });
-
-  const submitMutation = useMutation({
-    mutationFn: async (values: IdeaFormValues) => {
-      const venture = await createVenture(values.idea);
-      const interp = await interpretIdea(venture.id);
-      return { venture, interp };
-    },
-    onSuccess: ({ venture, interp }) => {
-      setVentureId(venture.id);
-      setInterpretation(interp);
-    },
-  });
-
-  const reviewForm = useForm<IdeaInterpretation>();
-
+  // Signed in with an organization chosen: nothing to do here.
   useEffect(() => {
-    if (interpretation) {
-      reviewForm.reset(interpretation);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [interpretation]);
+    if (session?.active_organization) router.replace(HOME_AFTER_LOGIN);
+  }, [session, router]);
 
-  const confirmMutation = useMutation({
-    mutationFn: (values: IdeaInterpretation) => {
-      if (!ventureId) throw new Error("Missing venture id");
-      return confirmIdea(ventureId, values);
-    },
-    onSuccess: () => {
-      if (ventureId) router.push(`/ventures/${ventureId}`);
-    },
+  const googleMutation = useMutation({ mutationFn: googleLogin, onSuccess: setSession });
+  const passwordMutation = useMutation({
+    mutationFn: (values: PasswordFormValues) => passwordLogin(values.email, values.password),
+    onSuccess: setSession,
+  });
+  const devMutation = useMutation({
+    mutationFn: (values: DevLoginFormValues) => devLogin(values.email),
+    onSuccess: setSession,
+  });
+  const selectMutation = useMutation({ mutationFn: selectOrganization, onSuccess: setSession });
+  const switchAccountMutation = useMutation({
+    mutationFn: logout,
+    onSuccess: () => setSession(null),
   });
 
-  if (interpretation) {
+  const passwordSchema = z.object({
+    email: z.email({ message: t("errorEmailInvalid") }),
+    password: z.string().min(1, { message: t("errorPasswordRequired") }),
+  });
+  const passwordForm = useForm<PasswordFormValues>({ resolver: zodResolver(passwordSchema) });
+
+  const devSchema = z.object({ email: z.email({ message: t("errorEmailInvalid") }) });
+  const devForm = useForm<DevLoginFormValues>({ resolver: zodResolver(devSchema) });
+
+  // Account states the backend reports once the user has proven who they are.
+  const accountStatusMessages = {
+    pending_approval: t("errorPendingApproval"),
+    account_disabled: t("errorAccountDisabled"),
+  };
+
+  const googleError = googleMutation.isError
+    ? authErrorMessage(googleMutation.error, t, {
+        byDetail: accountStatusMessages,
+        byStatus: { 403: t("errorNotInvited"), 401: t("errorGoogleFailed") },
+      })
+    : null;
+  const passwordNeedsVerification =
+    passwordMutation.isError && errorDetail(passwordMutation.error) === "email_not_verified";
+  const passwordError =
+    passwordMutation.isError && !passwordNeedsVerification
+      ? authErrorMessage(passwordMutation.error, t, {
+          byDetail: accountStatusMessages,
+          byStatus: { 401: t("errorInvalidCredentials"), 429: t("errorTooManyAttempts") },
+        })
+      : null;
+  const devError = devMutation.isError
+    ? authErrorMessage(devMutation.error, t, { byStatus: { 401: t("errorUnknownUser") } })
+    : null;
+
+  // Signed in, but belongs to several organizations and hasn't picked one.
+  const needsOrganization = session && !session.active_organization;
+
+  if (needsOrganization) {
     return (
-      <main className="flex flex-1 items-center justify-center p-6">
-        <Card className="w-full max-w-xl">
-          <CardHeader>
-            <CardTitle>{tc("title")}</CardTitle>
-            <CardDescription>{tc("description")}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form
-              onSubmit={reviewForm.handleSubmit((values) => confirmMutation.mutate(values))}
-              className="flex flex-col gap-3"
-              noValidate
+      <AuthShell>
+        <CardHeader>
+          <CardTitle>{t("chooseOrganization")}</CardTitle>
+          <CardDescription>{t("chooseOrganizationDescription")}</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2">
+          {session.organizations.map((org) => (
+            <Button
+              key={org.slug}
+              variant="outline"
+              className="justify-start"
+              disabled={selectMutation.isPending}
+              onClick={() => selectMutation.mutate(org.slug)}
             >
-              <label htmlFor="review-title" className="text-sm font-medium">
-                {tc("fieldTitle")}
-              </label>
-              <Input id="review-title" {...reviewForm.register("title")} />
-
-              <label htmlFor="review-summary" className="text-sm font-medium">
-                {tc("fieldSummary")}
-              </label>
-              <Textarea id="review-summary" rows={3} {...reviewForm.register("summary")} />
-
-              <label htmlFor="review-industry" className="text-sm font-medium">
-                {tc("fieldIndustry")}
-              </label>
-              <Input id="review-industry" {...reviewForm.register("industry")} />
-
-              <label htmlFor="review-geography" className="text-sm font-medium">
-                {tc("fieldGeography")}
-              </label>
-              <Input id="review-geography" {...reviewForm.register("geography")} />
-
-              <label htmlFor="review-target-customer" className="text-sm font-medium">
-                {tc("fieldTargetCustomer")}
-              </label>
-              <Input id="review-target-customer" {...reviewForm.register("target_customer")} />
-
-              <label htmlFor="review-problem-hypothesis" className="text-sm font-medium">
-                {tc("fieldProblemHypothesis")}
-              </label>
-              <Textarea
-                id="review-problem-hypothesis"
-                rows={2}
-                {...reviewForm.register("problem_hypothesis")}
-              />
-
-              {confirmMutation.isError && (
-                <p className="text-destructive text-sm" role="alert">
-                  {tc("errorConfirmFailed")}
-                </p>
-              )}
-
-              <Button type="submit" disabled={confirmMutation.isPending} className="self-start">
-                {confirmMutation.isPending ? tc("confirming") : tc("confirm")}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-      </main>
+              {org.name}
+            </Button>
+          ))}
+          {selectMutation.isError && (
+            <p className="text-destructive text-sm" role="alert">
+              {authErrorMessage(selectMutation.error, t)}
+            </p>
+          )}
+          <Button
+            variant="ghost"
+            className="self-start"
+            disabled={switchAccountMutation.isPending}
+            onClick={() => switchAccountMutation.mutate()}
+          >
+            {t("back")}
+          </Button>
+        </CardContent>
+      </AuthShell>
     );
   }
 
   return (
-    <main className="flex flex-1 items-center justify-center p-6">
-      <Card className="w-full max-w-xl">
-        <CardHeader>
-          <CardTitle>{t("title")}</CardTitle>
-          <CardDescription>{t("description")}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {submitMutation.isPending ? (
-            <p role="status">{tc("loading")}</p>
-          ) : (
+    <AuthShell>
+      <CardHeader>
+        <CardTitle>{t("cardTitle")}</CardTitle>
+        <CardDescription>{t("cardDescription")}</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {config?.google_client_id ? (
+          <GoogleSignInButton
+            clientId={config.google_client_id}
+            locale={locale}
+            onCredential={(credential) => googleMutation.mutate(credential)}
+          />
+        ) : (
+          config && <p className="text-muted-foreground text-sm">{t("googleNotConfigured")}</p>
+        )}
+        {configQuery.isError && (
+          <p className="text-destructive text-sm" role="alert">
+            {authErrorMessage(configQuery.error, t)}
+          </p>
+        )}
+        {googleMutation.isPending && (
+          <p className="text-muted-foreground text-sm" role="status">
+            {t("submitting")}
+          </p>
+        )}
+        {googleError && (
+          <p className="text-destructive text-sm" role="alert">
+            {googleError}
+          </p>
+        )}
+
+        <div className="text-muted-foreground flex items-center gap-3 text-xs">
+          <span className="bg-border h-px flex-1" />
+          {t("divider")}
+          <span className="bg-border h-px flex-1" />
+        </div>
+
+        <form
+          onSubmit={passwordForm.handleSubmit((values) => passwordMutation.mutate(values))}
+          className="flex flex-col gap-3"
+          noValidate
+        >
+          <label htmlFor="login-email" className="text-sm font-medium">
+            {t("passwordEmailLabel")}
+          </label>
+          <Input
+            id="login-email"
+            type="email"
+            autoComplete="email"
+            placeholder={t("emailPlaceholder")}
+            aria-invalid={!!passwordForm.formState.errors.email}
+            {...passwordForm.register("email")}
+          />
+          {passwordForm.formState.errors.email && (
+            <p className="text-destructive text-sm" role="alert">
+              {passwordForm.formState.errors.email.message}
+            </p>
+          )}
+
+          <div className="flex items-center justify-between">
+            <label htmlFor="login-password" className="text-sm font-medium">
+              {t("passwordLabel")}
+            </label>
+            <Link href="/forgot-password" className="text-sm text-blue-700 hover:underline">
+              {t("forgotPassword")}
+            </Link>
+          </div>
+          <Input
+            id="login-password"
+            type="password"
+            autoComplete="current-password"
+            aria-invalid={!!passwordForm.formState.errors.password}
+            {...passwordForm.register("password")}
+          />
+          {passwordForm.formState.errors.password && (
+            <p className="text-destructive text-sm" role="alert">
+              {passwordForm.formState.errors.password.message}
+            </p>
+          )}
+          {passwordError && (
+            <p className="text-destructive text-sm" role="alert">
+              {passwordError}
+            </p>
+          )}
+          {passwordNeedsVerification && (
+            <p className="text-destructive text-sm" role="alert">
+              {t("errorEmailNotVerified")}{" "}
+              <Link
+                href={{
+                  pathname: "/verify-email",
+                  query: { email: passwordForm.getValues("email") },
+                }}
+                className="font-medium underline"
+              >
+                {t("verifyNow")}
+              </Link>
+            </p>
+          )}
+          <Button type="submit" disabled={passwordMutation.isPending}>
+            {passwordMutation.isPending ? t("submitting") : t("passwordSubmit")}
+          </Button>
+        </form>
+
+        <p className="text-muted-foreground text-center text-sm">
+          {t("noAccount")}{" "}
+          <Link href="/signup" className="font-medium text-blue-700 hover:underline">
+            {t("signUpLink")}
+          </Link>
+        </p>
+
+        {config?.dev_login_enabled && (
+          <details className="text-muted-foreground border-t pt-3 text-sm">
+            <summary className="cursor-pointer select-none">{t("devSection")}</summary>
             <form
-              onSubmit={ideaForm.handleSubmit((values) => submitMutation.mutate(values))}
-              className="flex flex-col gap-3"
+              onSubmit={devForm.handleSubmit((values) => devMutation.mutate(values))}
+              className="mt-3 flex flex-col gap-3"
               noValidate
             >
-              <label htmlFor="idea" className="text-sm font-medium">
-                {t("label")}
+              <label htmlFor="dev-email" className="text-foreground text-sm font-medium">
+                {t("emailLabel")}
               </label>
-              <Textarea
-                id="idea"
-                rows={6}
-                placeholder={t("placeholder")}
-                aria-invalid={!!ideaForm.formState.errors.idea}
-                {...ideaForm.register("idea")}
+              <Input
+                id="dev-email"
+                type="email"
+                autoComplete="off"
+                placeholder="dev@weeaim.local"
+                aria-invalid={!!devForm.formState.errors.email}
+                {...devForm.register("email")}
               />
-              {ideaForm.formState.errors.idea && (
+              {devForm.formState.errors.email && (
                 <p className="text-destructive text-sm" role="alert">
-                  {ideaForm.formState.errors.idea.message}
+                  {devForm.formState.errors.email.message}
                 </p>
               )}
-              {submitMutation.isError && (
+              {devError && (
                 <p className="text-destructive text-sm" role="alert">
-                  {t("errorSubmitFailed")}
+                  {devError}
                 </p>
               )}
-              <Button type="submit" className="self-start">
-                {t("submit")}
+              <Button type="submit" variant="outline" disabled={devMutation.isPending}>
+                {devMutation.isPending ? t("submitting") : t("devSubmit")}
               </Button>
+              <p className="text-xs">{t("devNotice")}</p>
             </form>
-          )}
-        </CardContent>
-      </Card>
-    </main>
+          </details>
+        )}
+      </CardContent>
+    </AuthShell>
   );
 }

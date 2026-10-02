@@ -50,14 +50,21 @@ def _pg_quote_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+def _create_role_if_missing(name: str, options: str, password: str) -> None:
+    # Roles are cluster-wide, not per-database: a second database on the
+    # same server (e.g. the test database, see tests/conftest.py) finds them
+    # already created by the first, so only create when missing.
+    op.execute(
+        f"DO $roles$ BEGIN "
+        f"IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{name}') THEN "
+        f"CREATE ROLE {name} {options} PASSWORD {_pg_quote_literal(password)}; "
+        f"END IF; END $roles$"
+    )
+
+
 def upgrade() -> None:
-    op.execute(
-        f"CREATE ROLE venture_app LOGIN PASSWORD {_pg_quote_literal(settings.app_db_password)}"
-    )
-    op.execute(
-        "CREATE ROLE venture_service LOGIN BYPASSRLS PASSWORD "
-        f"{_pg_quote_literal(settings.service_db_password)}"
-    )
+    _create_role_if_missing("venture_app", "LOGIN", settings.app_db_password)
+    _create_role_if_missing("venture_service", "LOGIN BYPASSRLS", settings.service_db_password)
 
     op.execute("GRANT USAGE ON SCHEMA public TO venture_app, venture_service")
     op.execute(

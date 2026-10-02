@@ -4,9 +4,11 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from openai import OpenAIError
+from sqlalchemy.exc import InterfaceError, OperationalError
 
 from app.config import settings
-from app.routers import documents, reports, ventures, wizard
+from app.routers import admin, auth, documents, reports, ventures, wizard
+from app.sessions import SessionConfigError
 
 logger = logging.getLogger(__name__)
 
@@ -27,14 +29,47 @@ async def openai_error_handler(request: Request, exc: OpenAIError) -> JSONRespon
         content={"detail": "The AI service is temporarily unavailable. Please try again shortly."},
     )
 
+
+async def service_unavailable_handler(request: Request, exc: Exception) -> JSONResponse:
+    # The database (or another backing service) can't be reached -- e.g.
+    # Docker/Postgres isn't running. Without this, every request touching
+    # the database becomes a bare 500 that looks like an application bug.
+    logger.error(
+        "Backing service unavailable on %s: %s: %s",
+        request.url.path, type(exc).__name__, exc,
+    )
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "A required service is temporarily unavailable. Please try again shortly."},
+    )
+
+
+# asyncpg raises plain ConnectionRefusedError/TimeoutError when Postgres is
+# down at connect time; SQLAlchemy raises these when a connection drops.
+for _exc_class in (ConnectionError, TimeoutError, OperationalError, InterfaceError):
+    app.add_exception_handler(_exc_class, service_unavailable_handler)
+
+
+@app.exception_handler(SessionConfigError)
+async def session_config_error_handler(request: Request, exc: SessionConfigError) -> JSONResponse:
+    logger.error("Session configuration error on %s: %s", request.url.path, exc)
+    return JSONResponse(
+        status_code=503, content={"detail": "Sign-in is not configured on this server."}
+    )
+
+
 if settings.environment != "production":
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://localhost:3000"],
+        # The session cookie is sent cross-origin (port 3000 -> 8000).
+        allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
+app.include_router(auth.router)
+app.include_router(admin.router)
 app.include_router(ventures.router)
 app.include_router(wizard.router)
 app.include_router(documents.router)

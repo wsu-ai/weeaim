@@ -10,3 +10,5 @@ pypdf
 python-docx
 openpyxl
 pgvector
+PyJWT[crypto]
+argon2-cffi

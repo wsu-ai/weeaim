@@ -100,7 +100,28 @@ async def test_list_stages_returns_eleven_stages_not_started():
         assert len(stages) == 11
         assert all(s["status"] == "not_started" for s in stages)
         implemented = {s["slug"] for s in stages if s["implemented"]}
-        assert implemented == {"problem_definition", "customer_definition", "value_proposition"}
+        # Stage 1 (idea_discovery) became workable with AI idea research.
+        assert implemented == {
+            "idea_discovery",
+            "problem_definition",
+            "customer_definition",
+            "existing_alternatives",
+            "value_proposition",
+        }
+        # Stage 4 is locked until stages 1-3 are completed.
+        alternatives = next(s for s in stages if s["slug"] == "existing_alternatives")
+        assert alternatives["locked"] is True
+        assert alternatives["locked_by"] == [
+            "idea_discovery",
+            "problem_definition",
+            "customer_definition",
+        ]
+        assert not any(s["locked"] for s in stages if s["slug"] != "existing_alternatives")
+        idea_stage = next(s for s in stages if s["slug"] == "idea_discovery")
+        assert [f["name"] for f in idea_stage["question_schema"]["fields"]] == [
+            "idea_statement",
+            "differentiation_plan",
+        ]
     finally:
         async with async_session() as session:
             await _cleanup(session, org_slug, user_email)

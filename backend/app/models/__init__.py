@@ -1,4 +1,5 @@
 from app.db import Base
+from app.models.account import EmailCode, UserConsent
 from app.models.ai_run import AIRun
 from app.models.audit import AuditLog
 from app.models.document import Document, DocumentChunk
@@ -13,6 +14,8 @@ __all__ = [
     "Organization",
     "OrganizationMember",
     "User",
+    "UserConsent",
+    "EmailCode",
     "Venture",
     "VentureMember",
     "IdeaVersion",

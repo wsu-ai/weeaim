@@ -1,0 +1,114 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+  <!-- Original artwork for WEEAIM: a venture "launch" with rising growth
+       curves, a connected idea network, and a light burst on the horizon. -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#050816"/>
+      <stop offset="0.45" stop-color="#0d1240"/>
+      <stop offset="0.8" stop-color="#241056"/>
+      <stop offset="1" stop-color="#3a0d5e"/>
+    </linearGradient>
+    <radialGradient id="burst" cx="1450" cy="700" r="620" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7ef0ff" stop-opacity="0.55"/>
+      <stop offset="0.25" stop-color="#4f7bff" stop-opacity="0.28"/>
+      <stop offset="0.6" stop-color="#7b3dff" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#7b3dff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowTL" cx="260" cy="160" r="560" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff4fd8" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#ff4fd8" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="curveA" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#3b82f6" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#38bdf8" stop-opacity="0.8"/>
+      <stop offset="1" stop-color="#a5f3fc"/>
+    </linearGradient>
+    <linearGradient id="curveB" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#8b5cf6" stop-opacity="0"/>
+      <stop offset="0.6" stop-color="#a78bfa" stop-opacity="0.7"/>
+      <stop offset="1" stop-color="#f0abfc"/>
+    </linearGradient>
+    <linearGradient id="horizon" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#38bdf8" stop-opacity="0"/>
+      <stop offset="0.75" stop-color="#7dd3fc" stop-opacity="0.6"/>
+      <stop offset="1" stop-color="#38bdf8" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="haze"><feGaussianBlur stdDeviation="2.2"/></filter>
+    <pattern id="grid" width="64" height="64" patternUnits="userSpaceOnUse">
+      <path d="M64 0H0V64" fill="none" stroke="#8ab4ff" stroke-opacity="0.06" stroke-width="1"/>
+    </pattern>
+  </defs>
+
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+  <rect width="1920" height="1080" fill="url(#grid)"/>
+  <rect width="1920" height="1080" fill="url(#glowTL)"/>
+  <rect width="1920" height="1080" fill="url(#burst)"/>
+
+  <!-- perspective floor -->
+  <g stroke="#6ea8ff" stroke-opacity="0.12" fill="none">
+    <path d="M1450 700L-200 1080M1450 700L300 1080M1450 700L800 1080M1450 700L1300 1080M1450 700L1800 1080M1450 700L2300 1080M1450 700L2800 1080"/>
+    <path d="M0 760H1920M0 820H1920M0 900H1920M0 1000H1920"/>
+  </g>
+  <path d="M600 700H2100" stroke="url(#horizon)" stroke-width="2"/>
+
+  <!-- rising growth curves -->
+  <g fill="none" stroke-linecap="round" filter="url(#soft)">
+    <path d="M-40 980C380 960 640 900 900 780S1300 420 1460 300 1760 120 1980 60" stroke="url(#curveA)" stroke-width="4"/>
+    <path d="M-40 1040C420 1010 720 960 980 860S1360 600 1540 470 1800 320 1980 260" stroke="url(#curveB)" stroke-width="3"/>
+    <path d="M-40 900C300 890 560 860 820 760S1180 540 1360 420 1700 230 1980 170" stroke="url(#curveA)" stroke-width="1.5" stroke-opacity="0.6"/>
+  </g>
+  <!-- bar chart echo -->
+  <g fill="#60a5fa" fill-opacity="0.10">
+    <rect x="1180" y="620" width="34" height="80" rx="4"/>
+    <rect x="1230" y="580" width="34" height="120" rx="4"/>
+    <rect x="1280" y="520" width="34" height="180" rx="4"/>
+    <rect x="1330" y="450" width="34" height="250" rx="4"/>
+    <rect x="1380" y="360" width="34" height="340" rx="4"/>
+  </g>
+
+  <!-- idea network -->
+  <g fill="none" stroke="#93c5fd" stroke-opacity="0.35" stroke-width="1.2">
+    <path d="M1180 180L1320 250L1460 160L1600 230L1720 140M1320 250L1380 380L1600 230M1380 380L1520 420L1600 230M1520 420L1700 360L1720 140M1700 360L1820 470M1180 180L1100 300L1380 380"/>
+    <path d="M1600 230L1820 470M1460 160L1380 380" stroke-opacity="0.18"/>
+  </g>
+  <g fill="#e0f2fe" filter="url(#soft)">
+    <circle cx="1180" cy="180" r="4"/>
+    <circle cx="1320" cy="250" r="5"/>
+    <circle cx="1460" cy="160" r="3.5"/>
+    <circle cx="1600" cy="230" r="7" fill="#a5f3fc"/>
+    <circle cx="1720" cy="140" r="4"/>
+    <circle cx="1380" cy="380" r="5"/>
+    <circle cx="1520" cy="420" r="4"/>
+    <circle cx="1700" cy="360" r="5" fill="#f0abfc"/>
+    <circle cx="1820" cy="470" r="3.5"/>
+    <circle cx="1100" cy="300" r="3"/>
+  </g>
+  <circle cx="1600" cy="230" r="22" fill="none" stroke="#a5f3fc" stroke-opacity="0.35"/>
+  <circle cx="1600" cy="230" r="44" fill="none" stroke="#a5f3fc" stroke-opacity="0.12"/>
+
+  <!-- launch trail and burst -->
+  <path d="M1450 700C1470 560 1520 420 1600 230" fill="none" stroke="#e0f2fe" stroke-opacity="0.5" stroke-width="2" stroke-dasharray="2 10" stroke-linecap="round"/>
+  <circle cx="1450" cy="700" r="10" fill="#ffffff" filter="url(#soft)"/>
+  <g stroke="#bae6fd" stroke-opacity="0.45" stroke-linecap="round">
+    <path d="M1450 640V600M1450 760V800M1390 700H1350M1510 700H1550M1408 658L1385 635M1492 742L1515 765M1492 658L1515 635M1408 742L1385 765"/>
+  </g>
+
+  <!-- distant stars -->
+  <g fill="#ffffff" filter="url(#haze)">
+    <circle cx="120" cy="90" r="1.6" opacity="0.7"/>
+    <circle cx="340" cy="260" r="1.2" opacity="0.5"/>
+    <circle cx="560" cy="120" r="1.8" opacity="0.6"/>
+    <circle cx="780" cy="300" r="1.1" opacity="0.4"/>
+    <circle cx="920" cy="80" r="1.5" opacity="0.6"/>
+    <circle cx="1040" cy="420" r="1.2" opacity="0.4"/>
+    <circle cx="1880" cy="620" r="1.6" opacity="0.6"/>
+    <circle cx="1800" cy="60" r="1.3" opacity="0.5"/>
+    <circle cx="660" cy="520" r="1.2" opacity="0.35"/>
+    <circle cx="220" cy="560" r="1.5" opacity="0.4"/>
+    <circle cx="1260" cy="60" r="1.2" opacity="0.5"/>
+  </g>
+</svg>

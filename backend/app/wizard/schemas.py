@@ -1,7 +1,23 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
+
+
+class IdeaDiscoveryAnswers(BaseModel):
+    idea_statement: str
+    differentiation_plan: str = ""
+
+
+class IdeaResearchRequest(BaseModel):
+    language: Literal["en", "ko"] = "en"
+
+
+class ExistingAlternativesAnswers(BaseModel):
+    current_solutions: str
+    why_switch: str = ""
+    biggest_threat: str = ""
 
 
 class ProblemDefinitionAnswers(BaseModel):
@@ -38,6 +54,9 @@ class StageStatus(BaseModel):
     answers: dict | None = None
     ai_analysis: dict | None = None
     question_schema: dict | None = None
+    # Locked until its prerequisite stages are completed (see STAGE_PREREQUISITES).
+    locked: bool = False
+    locked_by: list[str] = []
 
 
 class StageResponseRead(BaseModel):
