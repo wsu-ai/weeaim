@@ -1,0 +1,58 @@
+# Render Blueprint for the WEEAIM API (FastAPI) -- see
+# docs/deploy-vercel-render-supabase.md. The frontend is deployed separately
+# on Vercel and forwards /api/* here. Secrets marked `sync: false` are entered
+# in the Render dashboard and are never stored in git.
+services:
+  - type: web
+    name: weeaim-api
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    region: singapore
+    plan: starter            # a persistent disk requires a paid instance
+    healthCheckPath: /health
+    autoDeploy: true
+    disk:
+      name: weeaim-uploads
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: UPLOAD_STORAGE_DIR
+        value: /var/data/uploads
+      - key: WEB_CONCURRENCY
+        value: "2"
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: EMAIL_BACKEND
+        value: smtp
+      # Supabase (Session pooler, port 5432, ?ssl=require) -- see the guide.
+      - key: DATABASE_URL
+        sync: false
+      - key: APP_DATABASE_URL
+        sync: false
+      - key: SERVICE_DATABASE_URL
+        sync: false
+      - key: APP_DB_PASSWORD
+        sync: false
+      - key: SERVICE_DB_PASSWORD
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USERNAME
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SIGNUP_NOTIFY_EMAIL
+        sync: false

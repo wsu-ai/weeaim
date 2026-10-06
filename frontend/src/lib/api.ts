@@ -1,4 +1,6 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL;
+// Unset in production: requests go to the same address, forwarded to the
+// backend by next.config.ts. Locally: http://localhost:8000 (.env.local).
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 export class ApiError extends Error {
   constructor(
