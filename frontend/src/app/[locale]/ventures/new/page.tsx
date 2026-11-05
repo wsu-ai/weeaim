@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -19,11 +19,14 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useRouter } from "@/i18n/navigation";
 import {
+  ApiError,
   confirmIdea,
   createVenture,
   interpretIdea,
   type IdeaInterpretation,
+  type Venture,
 } from "@/lib/api";
+import { useTokenLimitMessage } from "@/lib/token-limit";
 
 type IdeaFormValues = { idea: string };
 
@@ -44,9 +47,16 @@ export default function IdeaIntakePage() {
 
   const ideaForm = useForm<IdeaFormValues>({ resolver: zodResolver(ideaSchema) });
 
+  const limitMessage = useTokenLimitMessage();
+  // The venture saved by an attempt whose AI step failed: trying again with
+  // the same idea reuses it instead of saving a duplicate.
+  const savedVenture = useRef<Venture | null>(null);
+
   const submitMutation = useMutation({
     mutationFn: async (values: IdeaFormValues) => {
-      const venture = await createVenture(values.idea);
+      const saved = savedVenture.current;
+      const venture = saved && saved.original_idea === values.idea ? saved : await createVenture(values.idea);
+      savedVenture.current = venture;
       const interp = await interpretIdea(venture.id);
       return { venture, interp };
     },
@@ -55,6 +65,16 @@ export default function IdeaIntakePage() {
       setInterpretation(interp);
     },
   });
+
+  // A token cap or AI account problem gets its own message; a service the
+  // server says is unavailable gets the server's reason; anything else the
+  // generic one.
+  function submitErrorMessage(error: unknown): string {
+    const limit = limitMessage(error);
+    if (limit) return limit;
+    if (error instanceof ApiError && error.status === 503 && error.detail) return error.detail;
+    return t("errorSubmitFailed");
+  }
 
   const reviewForm = useForm<IdeaInterpretation>();
 
@@ -172,7 +192,7 @@ export default function IdeaIntakePage() {
               )}
               {submitMutation.isError && (
                 <p className="text-destructive text-sm" role="alert">
-                  {t("errorSubmitFailed")}
+                  {submitErrorMessage(submitMutation.error)}
                 </p>
               )}
               <Button type="submit" className="self-start">

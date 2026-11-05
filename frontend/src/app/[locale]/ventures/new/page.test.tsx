@@ -72,6 +72,71 @@ describe("IdeaIntakePage", () => {
     );
   });
 
+  it("says the AI account is out of credits instead of the generic error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.endsWith("/interpret")) {
+          return { ok: false, status: 503, json: async () => ({ detail: "ai_quota_exhausted" }) };
+        }
+        return jsonResponse({ id: "v-1", original_idea: VALID_IDEA });
+      }),
+    );
+    renderPage();
+
+    fireEvent.change(screen.getByLabelText(messages.IdeaIntake.label), {
+      target: { value: VALID_IDEA },
+    });
+    fireEvent.click(screen.getByRole("button", { name: messages.IdeaIntake.submit }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(messages.TokenLimit.ai_quota_exhausted);
+  });
+
+  it("shows the server's reason when the AI service is unavailable", async () => {
+    const reason = "The AI service is temporarily unavailable. Please try again shortly.";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.endsWith("/interpret")) {
+          return { ok: false, status: 503, json: async () => ({ detail: reason }) };
+        }
+        return jsonResponse({ id: "v-1", original_idea: VALID_IDEA });
+      }),
+    );
+    renderPage();
+
+    fireEvent.change(screen.getByLabelText(messages.IdeaIntake.label), {
+      target: { value: VALID_IDEA },
+    });
+    fireEvent.click(screen.getByRole("button", { name: messages.IdeaIntake.submit }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(reason);
+  });
+
+  it("reuses the saved venture when trying again after the AI step failed", async () => {
+    let interpretCalls = 0;
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith("/interpret")) {
+        interpretCalls += 1;
+        return interpretCalls === 1 ? jsonResponse(null, false) : jsonResponse(FAKE_INTERPRETATION);
+      }
+      return jsonResponse({ id: "v-1", original_idea: VALID_IDEA });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderPage();
+
+    fireEvent.change(screen.getByLabelText(messages.IdeaIntake.label), {
+      target: { value: VALID_IDEA },
+    });
+    fireEvent.click(screen.getByRole("button", { name: messages.IdeaIntake.submit }));
+    await screen.findByRole("alert");
+    fireEvent.click(screen.getByRole("button", { name: messages.IdeaIntake.submit }));
+
+    await waitFor(() => expect(interpretCalls).toBe(2));
+    const creates = fetchMock.mock.calls.filter(([url]) => !String(url).endsWith("/interpret"));
+    expect(creates).toHaveLength(1);
+  });
+
   it("walks through create -> interpret -> review -> confirm", async () => {
     vi.stubGlobal(
       "fetch",

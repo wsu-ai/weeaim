@@ -1480,32 +1480,19 @@ export function logout(): Promise<void> {
 }
 
 export async function createVenture(idea: string): Promise<Venture> {
-  const response = await fetch(`${API_URL}/api/ventures`, {
-    method: "POST",
-    credentials: "include",
-    headers: JSON_HEADERS,
-    body: JSON.stringify({ idea }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to create venture: ${response.status}`);
-  }
-
-  return response.json();
+  return authRequest<Venture>(
+    "/api/ventures",
+    { method: "POST", body: JSON.stringify({ idea }) },
+    "Failed to create venture",
+  );
 }
 
 export async function interpretIdea(ventureId: string): Promise<IdeaInterpretation> {
-  const response = await fetch(`${API_URL}/api/ventures/${ventureId}/interpret`, {
-    method: "POST",
-    credentials: "include",
-    headers: JSON_HEADERS,
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to interpret idea: ${response.status}`);
-  }
-
-  return response.json();
+  return authRequest<IdeaInterpretation>(
+    `/api/ventures/${ventureId}/interpret`,
+    { method: "POST" },
+    "Failed to interpret idea",
+  );
 }
 
 export async function getVenture(ventureId: string): Promise<Venture> {
