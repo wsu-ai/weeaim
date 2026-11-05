@@ -114,3 +114,17 @@ describe("RequireSession", () => {
     );
   });
 });
+
+describe("RequireSession navigation", () => {
+  it("puts My AI Agents between New idea and Settings", async () => {
+    stubMe(200, SESSION);
+    renderGuarded();
+    await screen.findByText("protected content");
+
+    const links = screen.getAllByRole("link").map((link) => link.textContent);
+    const at = (label: string) => links.indexOf(label);
+    expect(at(messages.Session.myAgents)).toBe(at(messages.Session.newIdea) + 1);
+    expect(at(messages.Session.settings)).toBe(at(messages.Session.myAgents) + 1);
+    expect(screen.getByRole("link", { name: messages.Session.myAgents })).toHaveAttribute("href", "/agents");
+  });
+});

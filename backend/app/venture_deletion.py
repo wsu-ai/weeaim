@@ -11,12 +11,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import AuthContext, find_membership
 from app.models import (
+    AgentRun,
+    AgentRunStep,
     AIRun,
     Document,
     DocumentChunk,
     EvidenceItem,
     IdeaVersion,
+    PersonaMessage,
     Venture,
+    VentureAsset,
     VentureMember,
     WizardResponse,
     WizardResponseRevision,
@@ -44,7 +48,13 @@ async def delete_venture(session: AsyncSession, venture: Venture) -> list[str]:
         ).scalars()
     )
 
+    await session.execute(
+        delete(AgentRunStep).where(
+            AgentRunStep.run_id.in_(select(AgentRun.id).where(AgentRun.venture_id == venture.id))
+        )
+    )
     for model in (
+        AgentRun,  # AI agent runs (their steps are deleted above)
         DocumentChunk,  # the search vectors
         Document,
         EvidenceItem,
@@ -53,6 +63,8 @@ async def delete_venture(session: AsyncSession, venture: Venture) -> list[str]:
         IdeaVersion,
         VentureMember,
         AIRun,
+        VentureAsset,  # generated images
+        PersonaMessage,  # persona chats
     ):
         await session.execute(delete(model).where(model.venture_id == venture.id))
     await session.execute(delete(Venture).where(Venture.id == venture.id))

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
+import { ChevronRight } from "lucide-react";
 import { useFormatter, useTranslations } from "next-intl";
 import { useEffect, useRef } from "react";
 
@@ -179,7 +180,7 @@ export function IdeaResearchPanel({
             <BulletList items={shown.differentiation_opportunities} />
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="flex flex-col gap-2">
             <ListSection title={t("feasibilityTitle")} items={shown.feasibility} />
             <ListSection title={t("viabilityTitle")} items={shown.viability} />
             <ListSection title={t("risksTitle")} items={shown.key_risks} />
@@ -219,12 +220,21 @@ function BulletList({ items }: { items: string[] }) {
   );
 }
 
+/** A collapsible section: click the title to show or hide its items. */
 function ListSection({ title, items }: { title: string; items: string[] }) {
   if (items.length === 0) return null;
   return (
-    <div>
-      <h4 className="mb-1 text-sm font-semibold">{title}</h4>
-      <BulletList items={items} />
-    </div>
+    <details className="group rounded-md border bg-white" data-testid="research-section">
+      <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none [&::-webkit-details-marker]:hidden">
+        <ChevronRight aria-hidden className="size-4 shrink-0 text-slate-500 transition-transform group-open:rotate-90" />
+        <span className="flex-1">{title}</span>
+        <span className="text-muted-foreground rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium tabular-nums">
+          {items.length}
+        </span>
+      </summary>
+      <div className="border-t px-3 py-2">
+        <BulletList items={items} />
+      </div>
+    </details>
   );
 }

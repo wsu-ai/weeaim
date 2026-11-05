@@ -1,30 +1,39 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Trash2 } from "lucide-react";
+import { Archive, ChevronDown, ChevronRight, Download, RotateCcw, Trash2 } from "lucide-react";
 import { useFormatter, useTranslations } from "next-intl";
 import { useState } from "react";
 
+import { ConfirmVentureAction } from "@/components/confirm-venture-action";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Link } from "@/i18n/navigation";
-import { deleteVenture, listVentures, type VentureSummary } from "@/lib/api";
-import { authErrorMessage } from "@/lib/auth-errors";
+import {
+  archiveVenture,
+  deleteVenture,
+  downloadVentureArchive,
+  listArchivedVentures,
+  listVentures,
+  restoreVenture,
+  type ArchivedVenture,
+  type VentureSummary,
+} from "@/lib/api";
 
 const VENTURES_KEY = ["ventures"];
+const ARCHIVED_KEY = ["ventures", "archived"];
 
 /**
  * "My ventures": everything this organization has worked on, with saved
  * progress and research -- where a returning user picks up where they left off.
+ * Removing a venture archives it (restorable); archived ventures are listed
+ * below, where they can be restored, downloaded or deleted for good.
  */
 export default function MyVenturesPage() {
   const t = useTranslations("Ventures");
   const venturesQuery = useQuery({ queryKey: VENTURES_KEY, queryFn: listVentures });
   const ventures = venturesQuery.data ?? [];
-  const [deletedTitle, setDeletedTitle] = useState<string | null>(null);
-  // Deleting is offered when several ideas are being worked on.
-  const allowDelete = ventures.length > 1;
+  const [notice, setNotice] = useState<string | null>(null);
 
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-4 p-6">
@@ -41,9 +50,9 @@ export default function MyVenturesPage() {
         </Link>
       </div>
 
-      {deletedTitle && (
+      {notice && (
         <p role="status" className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-900">
-          {t("deleted", { title: deletedTitle })}
+          {notice}
         </p>
       )}
 
@@ -68,48 +77,23 @@ export default function MyVenturesPage() {
       <ul className="grid gap-4 md:grid-cols-2">
         {ventures.map((venture) => (
           <li key={venture.id}>
-            <VentureCard
-              venture={venture}
-              canDelete={allowDelete && venture.can_delete}
-              onDeleted={() => setDeletedTitle(venture.title)}
-            />
+            <VentureCard venture={venture} onArchived={() => setNotice(t("archived", { title: venture.title }))} />
           </li>
         ))}
       </ul>
+
+      <ArchivedVentures onNotice={setNotice} />
     </main>
   );
 }
 
-function VentureCard({
-  venture,
-  canDelete,
-  onDeleted,
-}: {
-  venture: VentureSummary;
-  canDelete: boolean;
-  onDeleted: () => void;
-}) {
+function VentureCard({ venture, onArchived }: { venture: VentureSummary; onArchived: () => void }) {
   const t = useTranslations("Ventures");
-  const tLogin = useTranslations("Login");
   const format = useFormatter();
   const queryClient = useQueryClient();
   const [confirming, setConfirming] = useState(false);
-  const [typedTitle, setTypedTitle] = useState("");
-
-  const deleteMutation = useMutation({
-    mutationFn: () => deleteVenture(venture.id),
-    onSuccess: () => {
-      onDeleted();
-      queryClient.setQueryData<VentureSummary[]>(VENTURES_KEY, (old) =>
-        old?.filter((v) => v.id !== venture.id),
-      );
-      queryClient.invalidateQueries({ queryKey: VENTURES_KEY });
-    },
-  });
 
   const progress = Math.round((venture.completed_stages / Math.max(venture.total_stages, 1)) * 100);
-  const titleMatches = typedTitle.trim() === venture.title.trim();
-  const inputId = `confirm-delete-${venture.id}`;
 
   return (
     <Card className="h-full">
@@ -120,7 +104,7 @@ function VentureCard({
               {venture.title}
             </Link>
           </CardTitle>
-          {canDelete && !confirming && (
+          {venture.can_delete && !confirming && (
             <Button
               variant="ghost"
               size="icon-sm"
@@ -136,40 +120,20 @@ function VentureCard({
       </CardHeader>
       <CardContent className="flex flex-col gap-3 text-sm">
         {confirming ? (
-          <div role="group" aria-labelledby={`${inputId}-label`} className="flex flex-col gap-2 rounded-md border border-red-200 bg-red-50 p-3">
-            <p id={`${inputId}-label`} className="font-medium text-red-900">
-              {t("confirmTitle", { title: venture.title })}
-            </p>
-            <p className="text-red-900">{t("confirmBody")}</p>
-            <label htmlFor={inputId} className="text-red-900">
-              {t("typeTitle")}
-            </label>
-            <Input id={inputId} value={typedTitle} onChange={(e) => setTypedTitle(e.target.value)} autoComplete="off" />
-            {deleteMutation.isError && (
-              <p role="alert" className="text-destructive">
-                {authErrorMessage(deleteMutation.error, tLogin, { byStatus: { 403: t("notAllowed") } })}
-              </p>
-            )}
-            <div className="flex gap-2">
-              <Button
-                variant="destructive"
-                disabled={!titleMatches || deleteMutation.isPending}
-                onClick={() => deleteMutation.mutate()}
-              >
-                {deleteMutation.isPending ? t("deleting") : t("confirmDelete")}
-              </Button>
-              <Button
-                variant="ghost"
-                disabled={deleteMutation.isPending}
-                onClick={() => {
-                  setConfirming(false);
-                  setTypedTitle("");
-                }}
-              >
-                {t("cancel")}
-              </Button>
-            </div>
-          </div>
+          <ConfirmVentureAction
+            ventureId={venture.id}
+            title={venture.title}
+            mode="archive"
+            action={(reauth) => archiveVenture(venture.id, reauth)}
+            onCancel={() => setConfirming(false)}
+            onDone={() => {
+              onArchived();
+              queryClient.setQueryData<VentureSummary[]>(VENTURES_KEY, (old) =>
+                old?.filter((v) => v.id !== venture.id),
+              );
+              queryClient.invalidateQueries({ queryKey: VENTURES_KEY });
+            }}
+          />
         ) : (
           <>
             <p className="text-muted-foreground line-clamp-2">
@@ -209,6 +173,131 @@ function VentureCard({
               </Link>
             </div>
           </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Archived ventures (collapsed): restore, download as one file, or delete for good. */
+function ArchivedVentures({ onNotice }: { onNotice: (message: string) => void }) {
+  const t = useTranslations("Ventures");
+  const archivedQuery = useQuery({ queryKey: ARCHIVED_KEY, queryFn: listArchivedVentures });
+  const archived = archivedQuery.data ?? [];
+  const [open, setOpen] = useState(false);
+
+  if (archived.length === 0) return null;
+  return (
+    <section aria-labelledby="archived-title" className="flex flex-col gap-3 border-t pt-4" data-testid="archived-ventures">
+      <h2 id="archived-title">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+          className="flex items-center gap-2 text-lg font-semibold hover:text-blue-700"
+        >
+          {open ? <ChevronDown aria-hidden className="size-5" /> : <ChevronRight aria-hidden className="size-5" />}
+          <Archive aria-hidden className="size-5 text-slate-500" />
+          {t("archivedTitle", { count: archived.length })}
+        </button>
+      </h2>
+      {open && (
+        <>
+          <p className="text-muted-foreground text-sm">{t("archivedDescription")}</p>
+          <ul className="flex flex-col gap-3">
+            {archived.map((venture) => (
+              <li key={venture.id}>
+                <ArchivedRow venture={venture} onNotice={onNotice} />
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
+  );
+}
+
+function ArchivedRow({ venture, onNotice }: { venture: ArchivedVenture; onNotice: (message: string) => void }) {
+  const t = useTranslations("Ventures");
+  const format = useFormatter();
+  const queryClient = useQueryClient();
+  const [deleting, setDeleting] = useState(false);
+
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: VENTURES_KEY });
+  };
+  const restoreMutation = useMutation({
+    mutationFn: () => restoreVenture(venture.id),
+    onSuccess: () => {
+      onNotice(t("restored", { title: venture.title }));
+      refresh();
+    },
+  });
+  const downloadMutation = useMutation({
+    mutationFn: () => downloadVentureArchive(venture.id),
+    onSuccess: ({ blob, filename }) => {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    },
+  });
+
+  return (
+    <Card>
+      <CardContent className="flex flex-col gap-2 py-3 text-sm">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <p className="font-semibold">{venture.title}</p>
+            <p className="text-muted-foreground text-xs">
+              {t("archivedOn", {
+                date: format.dateTime(new Date(venture.archived_at), { dateStyle: "medium", timeStyle: "short" }),
+              })}
+              {" · "}
+              {t("stagesCompleted", { done: venture.completed_stages, total: venture.total_stages })}
+            </p>
+          </div>
+          {!deleting && (
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" disabled={restoreMutation.isPending} onClick={() => restoreMutation.mutate()}>
+                <RotateCcw aria-hidden />
+                {t("restore")}
+              </Button>
+              <Button size="sm" variant="outline" disabled={downloadMutation.isPending} onClick={() => downloadMutation.mutate()}>
+                <Download aria-hidden />
+                {t("downloadArchive")}
+              </Button>
+              <Button size="sm" variant="ghost" className="text-red-700 hover:text-red-800" onClick={() => setDeleting(true)}>
+                <Trash2 aria-hidden />
+                {t("deletePermanently")}
+              </Button>
+            </div>
+          )}
+        </div>
+        {(restoreMutation.isError || downloadMutation.isError) && (
+          <p role="alert" className="text-destructive">
+            {t("actionFailed")}
+          </p>
+        )}
+        {deleting && (
+          <ConfirmVentureAction
+            ventureId={venture.id}
+            title={venture.title}
+            mode="delete"
+            action={(reauth) => deleteVenture(venture.id, reauth)}
+            onCancel={() => setDeleting(false)}
+            onDone={() => {
+              onNotice(t("deleted", { title: venture.title }));
+              queryClient.setQueryData<ArchivedVenture[]>(ARCHIVED_KEY, (old) =>
+                old?.filter((v) => v.id !== venture.id),
+              );
+              refresh();
+            }}
+          />
         )}
       </CardContent>
     </Card>

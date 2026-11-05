@@ -11,6 +11,7 @@ from app.config import settings
 from app.db import get_session
 from app.dependencies import get_ai_provider, get_embedding_provider
 from app.documents.retrieval import retrieve_for_venture
+from app.tokens import metered
 from app.models import AuditLog, WizardResponse, WizardStage
 from app.reports.schemas import EvidenceCitation, PreliminaryReport, StageSummary
 from app.routers.ventures import _load_venture
@@ -53,28 +54,35 @@ async def generate_report(
     ]
 
     idea_context = venture.current_idea_statement or venture.original_idea
-    ranked_evidence = await retrieve_for_venture(
+    async with metered(
         session,
-        venture.id,
-        embedder,
-        idea_context,
-        limit=5,
-        candidate_pool=settings.retrieval_max_chunks,
-    )
-    evidence = [
-        EvidenceCitation(
-            citation_id=chunk.id,
-            document_id=chunk.document_id,
-            excerpt=chunk.content[:EXCERPT_MAX_LENGTH],
+        organization_id=auth.organization_id,
+        venture_id=venture.id,
+        user_id=auth.user_id,
+        operation="report",
+    ):
+        ranked_evidence = await retrieve_for_venture(
+            session,
+            venture.id,
+            embedder,
+            idea_context,
+            limit=5,
+            candidate_pool=settings.retrieval_max_chunks,
         )
-        for chunk, _score in ranked_evidence
-    ]
+        evidence = [
+            EvidenceCitation(
+                citation_id=chunk.id,
+                document_id=chunk.document_id,
+                excerpt=chunk.content[:EXCERPT_MAX_LENGTH],
+            )
+            for chunk, _score in ranked_evidence
+        ]
 
-    synthesis = await provider.produce_report(
-        idea_context,
-        [summary.model_dump() for summary in stage_summaries],
-        [citation.model_dump(mode="json") for citation in evidence],
-    )
+        synthesis = await provider.produce_report(
+            idea_context,
+            [summary.model_dump() for summary in stage_summaries],
+            [citation.model_dump(mode="json") for citation in evidence],
+        )
 
     session.add(
         AuditLog(

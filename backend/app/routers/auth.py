@@ -24,6 +24,7 @@ from app.schemas import (
     DevLoginRequest,
     EmailOnlyRequest,
     GoogleLoginRequest,
+    LocationPreferencesUpdate,
     OrganizationSummary,
     PasswordLoginRequest,
     ResetPasswordRequest,
@@ -93,6 +94,9 @@ def _session_read(
             for org, role in memberships
         ],
         active_organization=active,
+        default_country=user.default_country,
+        default_metro_city=user.default_metro_city,
+        has_password=user.password_hash is not None,
     )
 
 
@@ -494,3 +498,22 @@ async def reset_password(
     if not valid:
         raise HTTPException(status_code=400, detail=INVALID_CODE)
     return StatusResponse(status="password_reset")
+
+
+@router.patch("/me/preferences", response_model=SessionRead)
+async def update_preferences(
+    payload: LocationPreferencesUpdate,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> SessionRead:
+    """Saves the signed-in user's default location (for Stage 6). An empty
+    value clears it. Only ever changes the caller's own account."""
+    claims = _current_claims(request)
+    user = await session.get(User, claims.user_id)
+    if user is None or user.account_status != "active":
+        raise HTTPException(status_code=401, detail="Not signed in")
+    user.default_country = payload.default_country
+    user.default_metro_city = payload.default_metro_city
+    memberships = await _memberships(session, user.id)
+    await session.commit()
+    return _session_read(user, memberships, claims.organization_id)

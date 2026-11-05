@@ -26,6 +26,43 @@ Four tiers with different model-handling rules:
 - Any tenant-isolation change requires a test that creates two organizations
   and proves neither can see the other's data. Do not proceed past this point
   until every such test passes.
+- Generated files (`venture_assets`, e.g. Stage 9 product images) carry
+  `organization_id` under a forced RLS policy. They are served only through
+  an authenticated endpoint that matches the asset to a venture visible to
+  the caller's organization. An asset ID on its own grants nothing
+  (`tests/test_mvp.py`).
+- Persona chats (`persona_messages`, Stage 7) carry `organization_id` under a
+  forced RLS policy. They are reached only through endpoints that check the
+  venture is visible to the caller's organization and that the persona
+  belongs to it (`tests/test_personas.py`).
+- Stage AI agent runs (`agent_runs`, `agent_run_steps`) carry
+  `organization_id` under a forced RLS policy (`tests/test_agents.py`). A run
+  executes in the background in **its own session as the RLS-scoped app role
+  (`venture_app`)**, re-scoped to the run's organization at the start of every
+  transaction. It deliberately does not use the BYPASSRLS `venture_service`
+  role, so Postgres still enforces isolation for agent work. Tools take the
+  venture and organization from the run, never from model arguments, and
+  `read_stage` only opens the stages on the spec's allowlist.
+- Agent controls (start/re-run, pause, resume, cancel, answer) and the
+  "My AI Agents" overview are reached only through `_load_venture` (the
+  caller's RLS scope; a run is looked up by id *and* venture) and every
+  control is audited (`agent_run.start`, `.pause`, `.resume`, `.cancel`,
+  `.answer`) (`tests/test_all_agents.py`).
+- Agent tool results, web pages and the founder's answers to agent questions
+  reach the model as untrusted data. Agents only **propose** answers; they
+  never write a stage's answers or complete a stage. Each run has turn,
+  search, question, token and time limits.
+
+- **Archived ventures** (`ventures.archived_at`) keep all their rows under the
+  same RLS policies. `_load_venture` returns 404 for an archived venture
+  except on the archive endpoints (restore, export, permanent delete), so
+  every other endpoint hides it (`tests/test_venture_archive.py`).
+
+- Token usage (`token_usage`) and token limits (`organization_token_limits`)
+  carry `organization_id` under forced RLS policies; another organization's
+  usage is never seen or counted (`tests/test_tokens.py`). Only an
+  organization owner/admin can change the limits, checked server-side; the
+  limits are enforced by the API before every AI call, never by the browser.
 
 ## Authentication and sessions
 
@@ -58,8 +95,9 @@ Four tiers with different model-handling rules:
   from the session and the database on every request. Approvals are
   limited to the caller's own organizations, and only owners can grant
   `owner`.
-- Deleting a venture (`DELETE /api/ventures/{id}`, `app/venture_deletion.py`)
-  is permanent. It removes every row the venture owns (answers and their
+- Permanently deleting an archived venture
+  (`POST /api/ventures/{id}/delete-permanently`, `app/venture_deletion.py`,
+  re-authenticated — see below) is permanent. It removes every row the venture owns (answers and their
   revisions, research runs, idea versions, evidence, documents and their
   search vectors) and then the stored files. Only the venture's creator or
   an organization owner/admin may delete, checked server-side within the
@@ -71,6 +109,55 @@ Four tiers with different model-handling rules:
   tests only, and are ignored or disabled when `ENVIRONMENT=production`.
 - Tests run against a separate `<db>_test` database (`backend/tests/conftest.py`)
   and never touch development data.
+
+## Re-authentication for destructive venture actions
+
+Removing a venture (archive) and permanently deleting an archived venture
+require the signed-in user to prove it's them again (`app/reauth.py`):
+
+- **Password:** checked with the same Argon2 verification as sign-in. Wrong
+  passwords count toward the **same lockout** as sign-in
+  (`LOGIN_MAX_FAILED_ATTEMPTS`, `LOGIN_LOCKOUT_MINUTES`), so this can't be used
+  to guess a password around the login limit. 403 `wrong_password`; 429
+  `too_many_attempts` while locked.
+- **Emailed code** for accounts without a password (Google sign-in): a
+  6-digit code (`email_codes`, purpose `confirm_venture_action`) sent only to
+  the signed-in user's own address, with the usual expiry and attempt limit.
+- Only the venture's creator or an organization owner/admin may archive,
+  restore, export or delete; the check runs before re-authentication.
+- **Permanent deletion is only possible from the archive**
+  (`POST /api/ventures/{id}/delete-permanently`); the old unconfirmed
+  `DELETE /api/ventures/{id}` route is gone. Every action is audited
+  (`venture.archive`, `venture.restore`, `venture.archive_export`,
+  `venture.delete`).
+- The archive export (one JSON file) is served as an attachment with
+  `Cache-Control: private, no-store`, in the caller's RLS scope.
+
+## External data sources (Stage 1 -> External Source)
+
+An organization's owners/admins can register data APIs that Stage 1
+research calls (`app/external_sources/`, table `external_sources`, forced RLS).
+Because the server calls a user-supplied address:
+
+- **SSRF guard** (`fetch.py`): `https` only, no credentials in the URL, the
+  default port only, `localhost`/`.local` names refused, and the host must
+  resolve only to **public** addresses (private, loopback, link-local such as
+  169.254.169.254, multicast, reserved and unspecified are refused) — checked
+  on save and again before every call. Redirects are never followed; calls
+  time out after 8 s; responses are read up to 1 MB. Residual risk: a DNS
+  answer could change between the check and the connection (rebinding); the
+  no-redirect, public-only resolution check and short timeout limit this.
+- **API keys** are encrypted at rest with Fernet, keyed by HKDF from
+  `SOURCE_KEYS_SECRET` (`.env` / secrets manager, never in git). They are
+  write-only: the API returns only `has_key`, audit entries never include
+  them, and a key is decrypted only to send in that source's own request
+  header. Without `SOURCE_KEYS_SECRET`, keys can't be stored. Changing the
+  secret makes saved keys unreadable (they are then simply not sent).
+- **Results are untrusted data**: they reach the model inside the
+  `<research_data>` block and the instructions say they are data, never
+  instructions. A failing source never fails research.
+- Members can see the sources (never keys); only owners/admins can add,
+  change, test or delete them, checked server-side; every change is audited.
 
 ## Mandatory security controls
 

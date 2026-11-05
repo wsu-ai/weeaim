@@ -1,6 +1,7 @@
 import uuid
+from datetime import datetime
 
-from sqlalchemy import CheckConstraint, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -28,6 +29,12 @@ class Venture(Base, UUIDPKMixin, TimestampMixin):
         String, nullable=False, server_default="idea_discovery"
     )
     status: Mapped[str] = mapped_column(String, nullable=False, server_default="active")
+    # Archived ventures keep every row (all stages, research, chats, files)
+    # but are hidden everywhere until restored (see app/venture_archive.py).
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    archived_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
+    )
 
 
 class VentureMember(Base, UUIDPKMixin, CreatedAtMixin):

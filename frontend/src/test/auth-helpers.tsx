@@ -15,6 +15,7 @@ type Href = string | { pathname: string; query?: Record<string, string> };
 
 export const navigationMock = {
   useRouter: () => ({ replace: replaceMock, push: pushMock }),
+  usePathname: () => "/settings",
   Link: ({ href, children, ...props }: { href: Href; children: React.ReactNode }) => (
     <a
       href={

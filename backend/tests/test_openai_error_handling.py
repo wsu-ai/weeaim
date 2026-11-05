@@ -78,3 +78,50 @@ async def test_openai_error_returns_clean_503_not_raw_500():
         app.dependency_overrides.pop(get_ai_provider, None)
         async with async_session() as session:
             await _cleanup(session, org_slug, user_email)
+
+
+def _status_error(cls, status: int, body: dict):
+    request = httpx2.Request("POST", "https://api.openai.com/v1/responses")
+    return cls("error", response=httpx2.Response(status, request=request), body=body)
+
+
+def test_ai_problems_are_told_apart():
+    from openai import AuthenticationError, RateLimitError
+
+    from app.ai.errors import AUTH_FAILED, QUOTA_EXHAUSTED, RATE_LIMITED, ai_problem
+
+    out_of_credits = _status_error(
+        RateLimitError, 429, {"message": "You have no credits remaining.", "type": "insufficient_quota", "code": "credit_balance_exhausted"}
+    )
+    busy = _status_error(RateLimitError, 429, {"message": "Slow down", "type": "requests", "code": "rate_limit_exceeded"})
+    bad_key = _status_error(AuthenticationError, 401, {"message": "Incorrect API key", "code": "invalid_api_key"})
+    assert ai_problem(out_of_credits) == QUOTA_EXHAUSTED
+    assert ai_problem(busy) == RATE_LIMITED
+    assert ai_problem(bad_key) == AUTH_FAILED
+    assert ai_problem(RuntimeError("x")) is None
+
+
+class _OutOfCreditsProvider:
+    async def structure_idea(self, idea_text: str) -> IdeaInterpretation:
+        from openai import RateLimitError
+
+        raise _status_error(
+            RateLimitError, 429, {"message": "You have no credits remaining.", "type": "insufficient_quota", "code": "credit_balance_exhausted"}
+        )
+
+
+@pytest.mark.asyncio
+async def test_an_exhausted_ai_account_is_reported_as_such():
+    app.dependency_overrides[get_ai_provider] = lambda: _OutOfCreditsProvider()
+    suffix = uuid.uuid4().hex[:8]
+    async with async_session() as session:
+        org_slug, user_email, venture_id = await _seed_org_user_venture(session, suffix)
+    try:
+        headers = {"X-Dev-User-Email": user_email, "X-Dev-Organization-Slug": org_slug}
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post(f"/api/ventures/{venture_id}/interpret", headers=headers)
+        assert (response.status_code, response.json()["detail"]) == (503, "ai_quota_exhausted")
+    finally:
+        app.dependency_overrides.pop(get_ai_provider, None)
+        async with async_session() as session:
+            await _cleanup(session, org_slug, user_email)

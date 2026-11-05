@@ -74,19 +74,59 @@ describe("AlternativesResearchPanel", () => {
     stubApi({});
     renderPanel(RESEARCH);
 
-    for (const heading of [
-      A.categories.direct_competitor,
-      A.categories.indirect_competitor,
-      A.categories.workaround,
-    ]) {
-      expect(screen.getByRole("heading", { name: heading })).toBeInTheDocument();
+    for (const category of ["direct_competitor", "indirect_competitor", "workaround"] as const) {
+      const section = screen.getByTestId(`category-${category}`);
+      expect(section.querySelector("summary")).toHaveTextContent(A.categories[category]);
     }
-    expect(screen.queryByRole("heading", { name: A.categories.substitute })).not.toBeInTheDocument();
-    expect(screen.getByText("Not personalised.")).toBeInTheDocument();
+    expect(screen.queryByTestId("category-substitute")).not.toBeInTheDocument();
     expect(screen.getByText("Pricing: $9 per serving")).toBeInTheDocument();
     expect(screen.getByText("Guided Korean cooking for beginners.")).toBeInTheDocument();
     expect(screen.getByText(A.barriersTitle)).toBeInTheDocument();
     expect(screen.getByText(/Based on your stages 1–3 as of/)).toBeInTheDocument();
+  });
+
+  it("collapses each category until opened, showing how many vendors it has", () => {
+    stubApi({});
+    renderPanel(RESEARCH);
+
+    const direct = screen.getByTestId("category-direct_competitor") as HTMLDetailsElement;
+    const count = RESEARCH.alternatives.filter((a) => a.category === "direct_competitor").length;
+    expect(direct.querySelector("summary")).toHaveTextContent(`${A.categories.direct_competitor}${count}`);
+    expect(direct.open).toBe(false);
+    fireEvent.click(direct.querySelector("summary")!);
+    expect(direct.open).toBe(true);
+  });
+
+  it("opens a popup with a competitor's strengths or weaknesses", () => {
+    stubApi({});
+    renderPanel(RESEARCH);
+    const alt = RESEARCH.alternatives.find((a) => a.weaknesses.includes("Not personalised."))!;
+
+    fireEvent.click(
+      screen.getByRole("button", { name: `Weaknesses of ${alt.name} (${alt.weaknesses.length})` }),
+    );
+    const dialog = screen.getByRole("dialog", { name: `${alt.name}: weaknesses` });
+    expect(dialog).toHaveTextContent("Not personalised.");
+    expect(screen.getByRole("button", { name: A.close })).toHaveFocus();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: `Strengths of ${alt.name} (${alt.strengths.length})` }));
+    const strengths = screen.getByRole("dialog", { name: `${alt.name}: strengths` });
+    for (const item of alt.strengths) expect(strengths).toHaveTextContent(item);
+    fireEvent.click(screen.getByRole("button", { name: A.close }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("disables the icon when there's nothing to show", () => {
+    stubApi({});
+    const empty = {
+      ...RESEARCH,
+      alternatives: RESEARCH.alternatives.map((a, i) => (i === 0 ? { ...a, strengths: [] } : a)),
+    };
+    renderPanel(empty);
+    const name = empty.alternatives[0].name;
+    expect(screen.getByRole("button", { name: `Strengths of ${name} (0)` })).toBeDisabled();
   });
 
   it("links to found websites, falls back to a web search, and leaves workarounds unlinked", () => {
@@ -151,7 +191,7 @@ describe("AlternativesResearchPanel", () => {
     const fetchMock = stubApi({ [RESEARCH_PATH]: { body: { ...RESEARCH, language: "ko" } } });
     renderPanel(null, "ko");
 
-    expect(await screen.findByRole("heading", { name: ko.AlternativesResearch.categories.direct_competitor })).toBeInTheDocument();
+    expect(await screen.findByText(ko.AlternativesResearch.categories.direct_competitor, { selector: "summary span" })).toBeInTheDocument();
     expect(JSON.parse(fetchMock.mock.calls[0][1]!.body as string)).toEqual({ language: "ko" });
   });
 });

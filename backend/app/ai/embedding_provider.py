@@ -3,6 +3,8 @@ from typing import Protocol
 
 from openai import AsyncOpenAI
 
+from app.ai.usage import add_tokens, usage_tokens
+
 
 class EmbeddingProvider(Protocol):
     async def embed(self, texts: list[str]) -> list[list[float]]: ...
@@ -22,6 +24,7 @@ class OpenAIEmbeddingProvider:
             response = await self._client.embeddings.create(
                 model=self._model, input=batch, dimensions=self._dimensions
             )
+            add_tokens(usage_tokens(response))
             vectors.extend(item.embedding for item in response.data)
         return vectors
 
@@ -33,6 +36,7 @@ class FakeEmbeddingProvider:
         self._dimensions = dimensions
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
+        add_tokens(len(texts))  # one token per text, so tests can check accounting
         return [self._fake_vector(text) for text in texts]
 
     def _fake_vector(self, text: str) -> list[float]:

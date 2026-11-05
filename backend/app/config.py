@@ -19,6 +19,13 @@ class Settings(BaseSettings):
     environment: str = "development"
     openai_api_key: str = ""
     openai_model: str = "gpt-6-astra"
+    # Image model for the Stage 9 MVP product concept image (OPENAI_IMAGE_MODEL).
+    openai_image_model: str = "gpt-image-1"
+    # Encrypts the API keys of external data sources (any long random string;
+    # see app/external_sources/secrets.py). Unset: sources can't store keys.
+    source_keys_secret: str = ""
+    # Token budget for one stage-agent run (see app/agents/runner.py).
+    agent_max_tokens: int = 150_000
     upload_storage_dir: str = "./storage/uploads"
     max_upload_size_bytes: int = 20_000_000
     embedding_model: str = "text-embedding-3-large"

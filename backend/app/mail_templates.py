@@ -59,6 +59,26 @@ def password_reset_code(to: str, language: str | None, code: str, ttl_minutes: i
     )
 
 
+def venture_action_code(to: str, language: str | None, code: str, ttl_minutes: int, title: str) -> OutgoingEmail:
+    return _email(
+        to,
+        language,
+        {"en": "Your WEEAIM confirmation code", "ko": "WEEAIM 확인 코드"},
+        {
+            "en": (
+                f"Your code to confirm removing the venture \"{title}\" is: {code}\n\n"
+                f"It expires in {ttl_minutes} minutes.\n"
+                "If you didn't ask for this, you can ignore this email; nothing has changed."
+            ),
+            "ko": (
+                f"벤처 \"{title}\" 삭제를 확인하는 코드: {code}\n\n"
+                f"이 코드는 {ttl_minutes}분 후에 만료됩니다.\n"
+                "요청하지 않으셨다면 이 메일을 무시하셔도 됩니다. 변경된 것은 없습니다."
+            ),
+        },
+    )
+
+
 def already_registered(to: str, language: str | None) -> OutgoingEmail:
     return _email(
         to,

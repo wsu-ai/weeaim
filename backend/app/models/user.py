@@ -63,6 +63,11 @@ class User(Base, UUIDPKMixin, TimestampMixin):
     )
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # Where the user usually is: the default for Stage 6 market sizing
+    # (country and metropolitan city). Set from Settings or Stage 6.
+    default_country: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    default_metro_city: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
     # Who approved or rejected this sign-up, and when (admin dashboard or
     # scripts.manage_signups; the reviewer is empty for command-line reviews).
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

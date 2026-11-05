@@ -19,8 +19,17 @@ export function authErrorMessage(
   tLogin: Translate,
   { byDetail = {}, byStatus = {} }: { byDetail?: Record<string, string>; byStatus?: Record<number, string> } = {},
 ): string {
-  if (isServiceUnavailable(error)) return tLogin("errorUnavailable");
   const apiError = error as ApiError;
+  // The AI service refused the app's account (backend/app/ai/errors.py).
+  if (error instanceof ApiError && error.status === 503) {
+    if (error.detail === "ai_quota_exhausted") return tLogin("aiQuotaExhausted");
+    if (error.detail === "ai_rate_limited") return tLogin("aiRateLimited");
+    if (error.detail === "ai_auth_failed") return tLogin("aiAuthFailed");
+  }
+  if (isServiceUnavailable(error)) return tLogin("errorUnavailable");
+  // A token cap was reached (backend/app/tokens.py): the same message everywhere.
+  if (apiError.status === 429 && apiError.detail === "venture_token_limit") return tLogin("tokenLimitVenture");
+  if (apiError.status === 429 && apiError.detail === "organization_token_limit") return tLogin("tokenLimitOrganization");
   return (
     (apiError.detail ? byDetail[apiError.detail] : undefined) ??
     byStatus[apiError.status] ??

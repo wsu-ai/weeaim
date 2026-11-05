@@ -65,6 +65,12 @@ export function RequireSession({ children }: { children: React.ReactNode }) {
           <Link href="/ventures/new" className="text-muted-foreground hover:text-foreground">
             {t("newIdea")}
           </Link>
+          <Link href="/agents" className="text-muted-foreground hover:text-foreground">
+            {t("myAgents")}
+          </Link>
+          <Link href="/settings" className="text-muted-foreground hover:text-foreground">
+            {t("settings")}
+          </Link>
           {isAdmin(session) && (
             <Link href="/admin/signups" className="text-muted-foreground hover:text-foreground">
               {t("admin")}

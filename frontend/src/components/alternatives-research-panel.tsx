@@ -2,7 +2,8 @@
 
 import { useMutation } from "@tanstack/react-query";
 import { useFormatter, useTranslations } from "next-intl";
-import { useEffect, useRef } from "react";
+import { ChevronRight, ThumbsDown, ThumbsUp, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -75,6 +76,9 @@ export function AlternativesResearchPanel({
     }
   }, [analysis, historical, researchMutation]);
 
+  // The strengths or weaknesses popup that's open, if any.
+  const [popup, setPopup] = useState<{ name: string; kind: "strengths" | "weaknesses"; items: string[] } | null>(null);
+
   const fresh = isAlternativesResearch(researchMutation.data ?? null) ? researchMutation.data : null;
   const shown = historical ? analysis : (fresh ?? analysis);
 
@@ -116,82 +120,92 @@ export function AlternativesResearchPanel({
           {shown.alternatives.length === 0 ? (
             <p className="text-muted-foreground text-sm">{t("noneFound")}</p>
           ) : (
-            CATEGORY_ORDER.map((category) => {
-              const items = shown.alternatives.filter((alt) => alt.category === category);
-              if (items.length === 0) return null;
-              return (
-                <div key={category}>
-                  <h4 className="mb-2 text-sm font-semibold">{t(`categories.${category}`)}</h4>
-                  <ul className="flex flex-col gap-2">
-                    {items.map((alt) => (
-                      <li key={alt.name} className="rounded-md border bg-white p-3 text-sm">
-                        <div className="flex flex-wrap items-center gap-2">
-                          {alt.url ? (
-                            <a href={alt.url} {...EXTERNAL_LINK} className="font-medium text-blue-700 hover:underline">
-                              {alt.name}
-                            </a>
-                          ) : (
-                            <span className="font-medium">{alt.name}</span>
-                          )}
-                          <span className={`rounded px-1.5 py-0.5 text-xs ${CATEGORY_CLASSES[category]}`}>
-                            {t(`categories.${category}`)}
-                          </span>
-                        </div>
-                        <p className="text-muted-foreground mt-1">{alt.description}</p>
-                        {(alt.strengths.length > 0 || alt.weaknesses.length > 0) && (
-                          <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                            {alt.strengths.length > 0 && (
-                              <div>
-                                <p className="text-xs font-semibold text-green-800">{t("strengths")}</p>
-                                <ul className="list-disc pl-4 text-xs">
-                                  {alt.strengths.map((item, i) => (
-                                    <li key={i}>{item}</li>
-                                  ))}
-                                </ul>
-                              </div>
-                            )}
-                            {alt.weaknesses.length > 0 && (
-                              <div>
-                                <p className="text-xs font-semibold text-red-800">{t("weaknesses")}</p>
-                                <ul className="list-disc pl-4 text-xs">
-                                  {alt.weaknesses.map((item, i) => (
-                                    <li key={i}>{item}</li>
-                                  ))}
-                                </ul>
-                              </div>
-                            )}
+            <div className="flex flex-col gap-2">
+              {CATEGORY_ORDER.map((category) => {
+                const items = shown.alternatives.filter((alt) => alt.category === category);
+                if (items.length === 0) return null;
+                return (
+                  <details key={category} className="group rounded-md border bg-white" data-testid={`category-${category}`}>
+                    <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none [&::-webkit-details-marker]:hidden">
+                      <ChevronRight aria-hidden className="size-4 shrink-0 text-slate-500 transition-transform group-open:rotate-90" />
+                      <span className="flex-1">{t(`categories.${category}`)}</span>
+                      <span className="text-muted-foreground rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium tabular-nums">
+                        {items.length}
+                      </span>
+                    </summary>
+                    <ul className="flex flex-col gap-2 border-t p-3">
+                      {items.map((alt) => (
+                        <li key={alt.name} className="rounded-md border bg-slate-50/50 p-3 text-sm">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              {alt.url ? (
+                                <a href={alt.url} {...EXTERNAL_LINK} className="font-medium text-blue-700 hover:underline">
+                                  {alt.name}
+                                </a>
+                              ) : (
+                                <span className="font-medium">{alt.name}</span>
+                              )}
+                              <span className={`rounded px-1.5 py-0.5 text-xs ${CATEGORY_CLASSES[category]}`}>
+                                {t(`categories.${category}`)}
+                              </span>
+                            </div>
+                            <div className="flex gap-1">
+                              <PointsButton
+                                kind="strengths"
+                                count={alt.strengths.length}
+                                label={t("strengthsOf", { name: alt.name, count: alt.strengths.length })}
+                                onClick={() => setPopup({ name: alt.name, kind: "strengths", items: alt.strengths })}
+                              />
+                              <PointsButton
+                                kind="weaknesses"
+                                count={alt.weaknesses.length}
+                                label={t("weaknessesOf", { name: alt.name, count: alt.weaknesses.length })}
+                                onClick={() => setPopup({ name: alt.name, kind: "weaknesses", items: alt.weaknesses })}
+                              />
+                            </div>
                           </div>
-                        )}
-                        {alt.pricing && <p className="mt-2 text-xs">{t("pricing", { pricing: alt.pricing })}</p>}
-                        <p className="mt-1">
-                          {alt.url ? (
-                            <a
-                              href={alt.url}
-                              {...EXTERNAL_LINK}
-                              aria-label={t("visitWebsiteOf", { name: alt.name })}
-                              className="break-all text-blue-700 hover:underline"
-                            >
-                              {t("visitWebsite")} ↗ <span className="text-muted-foreground">{displayHost(alt.url)}</span>
-                            </a>
-                          ) : (
-                            category !== "workaround" && (
+                          <p className="text-muted-foreground mt-1">{alt.description}</p>
+                          {alt.pricing && <p className="mt-2 text-xs">{t("pricing", { pricing: alt.pricing })}</p>}
+                          <p className="mt-1">
+                            {alt.url ? (
                               <a
-                                href={alt.search_url}
+                                href={alt.url}
                                 {...EXTERNAL_LINK}
-                                aria-label={t("searchWebFor", { name: alt.name })}
-                                className="text-blue-700 hover:underline"
+                                aria-label={t("visitWebsiteOf", { name: alt.name })}
+                                className="break-all text-blue-700 hover:underline"
                               >
-                                {t("searchWeb")} ↗
+                                {t("visitWebsite")} ↗ <span className="text-muted-foreground">{displayHost(alt.url)}</span>
                               </a>
-                            )
-                          )}
-                        </p>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              );
-            })
+                            ) : (
+                              category !== "workaround" && (
+                                <a
+                                  href={alt.search_url}
+                                  {...EXTERNAL_LINK}
+                                  aria-label={t("searchWebFor", { name: alt.name })}
+                                  className="text-blue-700 hover:underline"
+                                >
+                                  {t("searchWeb")} ↗
+                                </a>
+                              )
+                            )}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                );
+              })}
+            </div>
+          )}
+
+          {popup && (
+            <PointsDialog
+              title={t(popup.kind === "strengths" ? "strengthsTitle" : "weaknessesTitle", { name: popup.name })}
+              kind={popup.kind}
+              items={popup.items}
+              closeLabel={t("close")}
+              onClose={() => setPopup(null)}
+            />
           )}
 
           <div className="grid gap-4 sm:grid-cols-2">
@@ -235,6 +249,101 @@ function ListSection({ title, items, highlight = false }: { title: string; items
           <li key={index}>{item}</li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+/** An icon button that opens a competitor's strengths or weaknesses. */
+function PointsButton({
+  kind,
+  count,
+  label,
+  onClick,
+}: {
+  kind: "strengths" | "weaknesses";
+  count: number;
+  label: string;
+  onClick: () => void;
+}) {
+  const Icon = kind === "strengths" ? ThumbsUp : ThumbsDown;
+  const colors =
+    kind === "strengths"
+      ? "border-green-200 bg-green-50 text-green-800 hover:bg-green-100"
+      : "border-red-200 bg-red-50 text-red-800 hover:bg-red-100";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={count === 0}
+      aria-label={label}
+      title={label}
+      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium tabular-nums focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-40 ${colors}`}
+    >
+      <Icon aria-hidden className="size-3.5" />
+      {count}
+    </button>
+  );
+}
+
+/** A small popup listing one competitor's strengths or weaknesses. */
+function PointsDialog({
+  title,
+  kind,
+  items,
+  closeLabel,
+  onClose,
+}: {
+  title: string;
+  kind: "strengths" | "weaknesses";
+  items: string[];
+  closeLabel: string;
+  onClose: () => void;
+}) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    closeRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const Icon = kind === "strengths" ? ThumbsUp : ThumbsDown;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose(); // click outside closes
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="points-dialog-title"
+        className="w-full max-w-md rounded-lg bg-white p-4 shadow-xl"
+      >
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <h4 id="points-dialog-title" className="flex items-center gap-2 font-semibold">
+            <Icon aria-hidden className={`size-4 ${kind === "strengths" ? "text-green-700" : "text-red-700"}`} />
+            {title}
+          </h4>
+          <button
+            ref={closeRef}
+            type="button"
+            onClick={onClose}
+            aria-label={closeLabel}
+            className="rounded-md p-1 text-slate-500 hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+          >
+            <X aria-hidden className="size-4" />
+          </button>
+        </div>
+        <ul className="list-disc space-y-1 pl-5 text-sm">
+          {items.map((item, i) => (
+            <li key={i}>{item}</li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }

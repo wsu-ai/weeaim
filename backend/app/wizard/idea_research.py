@@ -66,9 +66,19 @@ def feasibility_score(factors: FeasibilityFactors) -> int:
     return round(sum(points) / len(points))
 
 
-def research_payload(result: IdeaResearchResult, language: str, researched_at: datetime) -> dict:
+def research_payload(
+    result: IdeaResearchResult, language: str, researched_at: datetime, external: list | None = None
+) -> dict:
     sources = [s for s in result.sources if _host(s.url)]
-    hosts = known_hosts(sources, result.consulted_urls)
+    # Links from the organization's external data sources count as seen too.
+    external_links = [
+        {"title": item["title"] or item["url"], "url": item["url"], "via": r.name}
+        for r in external or []
+        if r.status == "ok"
+        for item in r.items
+        if item.get("url") and _host(item["url"])
+    ]
+    hosts = known_hosts(sources, result.consulted_urls) | {_host(link["url"]) for link in external_links}
 
     solutions = [
         {
@@ -89,7 +99,10 @@ def research_payload(result: IdeaResearchResult, language: str, researched_at: d
             name: getattr(factors, name).model_dump() for name in FEASIBILITY_FACTOR_ORDER
         },
         "feasibility_score": feasibility_score(factors),
-        "sources": [s.model_dump() for s in sources],
+        "sources": [s.model_dump() for s in sources]
+        + [link for link in external_links if link["url"] not in {s.url for s in sources}],
+        # What each external source returned (no keys, no raw data).
+        "external_results": [{"name": r.name, "status": r.status, "items": len(r.items)} for r in external or []],
         "researched_at": researched_at.isoformat(),
         "language": language,
     }

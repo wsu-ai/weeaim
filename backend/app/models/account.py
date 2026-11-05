@@ -39,7 +39,7 @@ class EmailCode(Base, UUIDPKMixin, CreatedAtMixin):
     __tablename__ = "email_codes"
     __table_args__ = (
         CheckConstraint(
-            "purpose IN ('verify_email', 'reset_password')", name="ck_email_codes_purpose"
+            "purpose IN ('verify_email', 'reset_password', 'confirm_venture_action')", name="ck_email_codes_purpose"
         ),
     )
 

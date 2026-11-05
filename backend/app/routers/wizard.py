@@ -5,8 +5,8 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from openai import OpenAIError
-from pydantic import ValidationError
-from sqlalchemy import func, select
+from pydantic import BaseModel, ValidationError
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.base import AIProvider
@@ -14,11 +14,19 @@ from app.ai.schemas import StageAnalysis
 from app.auth import AuthContext, get_auth_context
 from app.db import get_session
 from app.dependencies import get_ai_provider
-from app.models import AIRun, AuditLog, WizardResponse, WizardResponseRevision, WizardStage
+from app.models import (
+    AgentRun,
+    AIRun,
+    AuditLog,
+    PersonaMessage,
+    WizardResponse,
+    WizardResponseRevision,
+    WizardStage,
+)
 from app.routers.ventures import _load_venture
 from app.schemas import ResearchRunRead
 from app.tenancy import set_current_organization
-from app.wizard.idea_research import research_payload
+from app.tokens import metered
 from app.wizard.schemas import (
     IdeaResearchRequest,
     StageResponseRead,
@@ -26,8 +34,20 @@ from app.wizard.schemas import (
     StageStatus,
     StageUpdateRequest,
 )
-from app.wizard.alternatives_research import alternatives_payload, based_on, venture_context
-from app.wizard.stages import RESEARCH_STAGES, STAGE_ANSWER_SCHEMAS, STAGE_PREREQUISITES
+from app.wizard.research_defs import RESEARCH_DEFS, FinalizeArgs, ResearchPrecondition
+from app.wizard.research_store import save_stage_research
+from app.wizard import (
+    financial_analysis,
+    personas,
+    translation,
+    validation_plan,
+)
+from app.wizard.stages import (
+    PROGRESS_FIELDS,
+    RESEARCH_STAGES,
+    STAGE_ANSWER_SCHEMAS,
+    STAGE_PREREQUISITES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +155,7 @@ async def update_stage(
     try:
         validated_answers = schema_cls.model_validate(payload.answers)
     except ValidationError as exc:
-        raise HTTPException(status_code=422, detail=exc.errors()) from exc
+        raise HTTPException(status_code=422, detail=exc.errors(include_url=False, include_context=False)) from exc
 
     venture = await _load_venture(session, auth, venture_id)
     stage = await _get_stage_or_404(session, stage_slug)
@@ -143,12 +163,40 @@ async def update_stage(
     response = await _get_response(session, venture.id, stage.id)
 
     was_completed = response is not None and response.status == "completed"
+    new_answers = validated_answers.model_dump()
+    if stage_slug == "validation_plan":
+        # Outcomes are computed here from the saved plan, never taken from the client.
+        new_answers = validation_plan.finalize_answers(new_answers, response.ai_analysis if response else None)
+    elif stage_slug == "persona_validation":
+        new_answers = personas.with_persona_ids(new_answers)
+        kept = {p["id"] for p in new_answers["personas"]}
+        removed = {
+            p.get("id") for p in ((response.answers or {}) if response else {}).get("personas") or []
+        } - kept - {None, ""}
+        if removed:
+            await session.execute(
+                delete(PersonaMessage).where(
+                    PersonaMessage.venture_id == venture.id, PersonaMessage.persona_id.in_(removed)
+                )
+            )
+    elif stage_slug == "financial_analysis":
+        # The projection is computed here from the inputs, never taken from the client.
+        new_answers = financial_analysis.finalize_answers(new_answers, response.ai_analysis if response else None)
+    progress = PROGRESS_FIELDS.get(stage_slug, set())
+    # Only progress fields changed (e.g. a ticked action item): keep the status.
+    progress_only = (
+        response is not None
+        and bool(progress)
+        and not payload.complete
+        and {k: v for k, v in new_answers.items() if k not in progress}
+        == {k: v for k, v in (response.answers or {}).items() if k not in progress}
+    )
 
     if response is None:
         response = WizardResponse(
             venture_id=venture.id,
             wizard_stage_id=stage.id,
-            answers=validated_answers.model_dump(),
+            answers=new_answers,
             status="in_progress",
         )
         session.add(response)
@@ -171,8 +219,9 @@ async def update_stage(
                 status=response.status,
             )
         )
-        response.answers = validated_answers.model_dump()
-        response.status = "in_progress"
+        response.answers = new_answers
+        if not progress_only:
+            response.status = "in_progress"
 
     if payload.complete:
         response.status = "completed"
@@ -180,7 +229,7 @@ async def update_stage(
 
     await session.flush()
 
-    if was_completed:
+    if was_completed and not progress_only:
         later_responses = (
             await session.execute(
                 select(WizardResponse)
@@ -216,10 +265,38 @@ async def update_stage(
     )
 
 
+class FeedbackRequest(BaseModel):
+    # The answers on the page, which may not be saved yet; the saved answers
+    # when omitted.
+    answers: dict[str, str | list[str]] | None = None
+
+
+def _feedback_answers(stage_slug: str, answers: dict) -> dict:
+    """Only the stage's own questions, trimmed to a sane size."""
+    fields = STAGE_ANSWER_SCHEMAS[stage_slug].model_fields
+    cleaned: dict = {}
+    for name, value in answers.items():
+        if name not in fields:
+            continue
+        if isinstance(value, list):
+            cleaned[name] = [str(item)[:2000] for item in value[:20]]
+        elif isinstance(value, str):
+            cleaned[name] = value[:5000]
+    return cleaned
+
+
+def _has_answer(answers: dict) -> bool:
+    return any(
+        (isinstance(v, str) and v.strip()) or (isinstance(v, list) and any(str(i).strip() for i in v))
+        for v in answers.values()
+    )
+
+
 @router.post("/{venture_id}/stages/{stage_slug}/analyze", response_model=StageAnalysis)
 async def analyze_stage(
     venture_id: uuid.UUID,
     stage_slug: str,
+    payload: FeedbackRequest | None = None,
     auth: AuthContext = Depends(get_auth_context),
     session: AsyncSession = Depends(get_session),
     provider: AIProvider = Depends(get_ai_provider),
@@ -233,16 +310,58 @@ async def analyze_stage(
     venture = await _load_venture(session, auth, venture_id)
     stage = await _get_stage_or_404(session, stage_slug)
     response = await _get_response(session, venture.id, stage.id)
-    if response is None or not response.answers:
-        raise HTTPException(status_code=400, detail="No answers saved for this stage yet")
 
-    analysis = await provider.analyze_stage(
-        stage_slug,
-        venture.current_idea_statement or venture.original_idea,
-        response.answers,
-    )
-    response.ai_analysis = analysis.model_dump()
-    response.status = "awaiting_user"
+    # Feedback weighs the AI Mentor Agent's drafts against the founder's own
+    # answers, so it needs both: a finished agent run for this stage, and at
+    # least one answered question.
+    agent_run = (
+        await session.execute(
+            select(AgentRun)
+            .where(
+                AgentRun.venture_id == venture.id,
+                AgentRun.stage_slug == stage_slug,
+                AgentRun.status == "succeeded",
+            )
+            .order_by(AgentRun.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if agent_run is None:
+        raise HTTPException(status_code=422, detail="agent_not_run")
+    given = payload.answers if payload and payload.answers is not None else (response.answers if response else {})
+    answers = _feedback_answers(stage_slug, given or {})
+    if not _has_answer(answers):
+        raise HTTPException(status_code=422, detail="no_answers")
+    drafts = agent_run.proposed_answers or {}
+
+    async with metered(
+        session,
+        organization_id=auth.organization_id,
+        venture_id=venture.id,
+        user_id=auth.user_id,
+        operation="stage_feedback",
+    ):
+        analysis = await provider.analyze_stage(
+            stage_slug,
+            venture.current_idea_statement or venture.original_idea,
+            answers,
+            agent_drafts=drafts,
+        )
+    if response is None:  # feedback on answers not saved yet
+        response = WizardResponse(venture_id=venture.id, wizard_stage_id=stage.id, answers={}, status="in_progress")
+        session.add(response)
+        await session.flush()
+    # When the mentor feedback was received (shown next to the feedback
+    # button), and the agent run whose drafts it weighed.
+    response.ai_analysis = {
+        **analysis.model_dump(),
+        "analyzed_at": datetime.now(UTC).isoformat(),
+        "agent_run_id": str(agent_run.id),
+    }
+    # Feedback never un-completes a stage: later stages unlock only while it
+    # stays completed (the research stages work the same way).
+    if response.status != "completed":
+        response.status = "awaiting_user"
 
     session.add(
         AuditLog(
@@ -282,14 +401,8 @@ async def list_stage_revisions(
     return list(revisions)
 
 
-RESEARCH_OPERATIONS = {
-    "idea_discovery": "idea_research",
-    "existing_alternatives": "alternatives_research",
-}
-
-
 def _research_slug_or_404(stage_slug: str) -> str:
-    if stage_slug not in RESEARCH_OPERATIONS:
+    if stage_slug not in RESEARCH_DEFS:
         raise HTTPException(status_code=404, detail="This stage has no research")
     return stage_slug
 
@@ -309,6 +422,23 @@ async def research_stage(
     feasibility, viability, where to differentiate.
     Stage 4 (existing_alternatives): the alternatives customers use today,
     based on the founder's answers in stages 1-3. Locked until those are done.
+    Stage 6 (market_evidence): TAM/SAM/SOM inputs for three geographies.
+    Stage 7 (persona_validation): insights from the founder's conversations
+    with AI personas (simulated). Needs at least one conversation.
+    Stage 7 (competitive_position): a position and action items synthesized
+    from stages 1-6 and their research. Locked until stages 1-6 are done.
+    Stage 8 (dfv_assessment): desirability, feasibility and viability rated
+    from stages 1-7 (no web search); scores are computed by app code.
+    Stage 9 (mvp): the minimum viable product -- a concept image, a sample
+    web page or a service description, by offering type. Never locked.
+    Stage 10 (business_model): the recommended business model from stages
+    1-9; unit economics are computed by app code. Never locked.
+    Stage 11 (validation_plan): experiments with pass/fail bars set in
+    advance; results are evaluated by app code. Never locked.
+    Stage 12 (financial_analysis): drafted inputs (expenses, revenue drivers,
+    funding); the 36-month projection is computed by app code. Never locked.
+    Stage 13 (marketing_plan): a differentiated marketing plan; budget totals
+    and funnel rates are computed by app code. Never locked.
     """
     _research_slug_or_404(stage_slug)
     venture = await _load_venture(session, auth, venture_id)
@@ -316,84 +446,71 @@ async def research_stage(
     responses = await _responses_by_slug(session, venture.id)
     if _locked_by(stage_slug, responses):
         raise HTTPException(status_code=409, detail="Complete the earlier stages before this one")
-    response = responses.get(stage_slug)
-
-    if stage_slug == "idea_discovery":
-        saved_idea = ((response.answers or {}).get("idea_statement") or "").strip() if response else ""
-        idea = saved_idea or venture.current_idea_statement or venture.original_idea
-        context_lines = [f"Idea: {idea}"]
-        for label, value in (
-            ("Title", venture.title),
-            ("Industry", venture.industry),
-            ("Geography", venture.geography),
-        ):
-            if value:
-                context_lines.append(f"{label}: {value}")
-        context = "\n".join(context_lines)
-        initial_answers = {"idea_statement": idea, "differentiation_plan": ""}
-        call = provider.research_idea
-    else:
-        context = venture_context(venture, responses)
-        initial_answers = {"current_solutions": "", "why_switch": "", "biggest_threat": ""}
-        call = provider.research_alternatives
+    definition = RESEARCH_DEFS[stage_slug]
+    if definition.before is not None:
+        await definition.before(session, provider, auth, venture, responses, payload.language)
+    try:
+        prepared = await definition.prepare(session, venture, responses)
+    except ResearchPrecondition as exc:
+        raise HTTPException(status_code=422, detail=exc.detail)
 
     # Every run is kept in ai_runs, so earlier research survives a re-run.
     run = AIRun(
         organization_id=auth.organization_id,
         venture_id=venture.id,
-        operation=RESEARCH_OPERATIONS[stage_slug],
+        operation=definition.operation,
         provider=type(provider).__name__,
         model=getattr(provider, "model", "unknown"),
-        input_payload={"context": context, "language": payload.language},
+        input_payload={"context": prepared.context, "language": payload.language},
         status="pending",
     )
-    started = time.monotonic()
-    try:
-        result = await call(context, payload.language)
-    except Exception as exc:
-        run.status = "failed"
-        run.error_message = f"{type(exc).__name__}: {exc}"[:2000]
-        run.latency_ms = int((time.monotonic() - started) * 1000)
-        session.add(run)
-        await session.commit()
-        if isinstance(exc, OpenAIError):
-            raise  # the app-wide handler turns this into a clean 503
-        logger.exception("%s research failed for venture %s", stage_slug, venture.id)
-        raise HTTPException(
-            status_code=503, detail="AI research failed. Please try again."
-        ) from exc
+    async with metered(
+        session,
+        organization_id=auth.organization_id,
+        venture_id=venture.id,
+        user_id=auth.user_id,
+        operation=definition.operation,
+    ):
+        started = time.monotonic()
+        try:
+            result = await getattr(provider, definition.call)(prepared.context, payload.language)
+        except Exception as exc:
+            run.status = "failed"
+            run.error_message = f"{type(exc).__name__}: {exc}"[:2000]
+            run.latency_ms = int((time.monotonic() - started) * 1000)
+            session.add(run)
+            await session.commit()
+            if isinstance(exc, OpenAIError):
+                raise  # the app-wide handler turns this into a clean 503
+            logger.exception("%s research failed for venture %s", stage_slug, venture.id)
+            raise HTTPException(
+                status_code=503, detail="AI research failed. Please try again."
+            ) from exc
 
-    now = datetime.now(UTC)
-    if stage_slug == "idea_discovery":
-        analysis = research_payload(result, payload.language, now)
-    else:
-        analysis = alternatives_payload(result, payload.language, now, based_on(responses))
-    run.status = "succeeded"
-    run.output_payload = analysis
+        analysis = await definition.payload(
+            FinalizeArgs(
+                session=session,
+                provider=provider,
+                auth=auth,
+                venture=venture,
+                responses=responses,
+                prepared=prepared,
+                result=result,
+                language=payload.language,
+                now=datetime.now(UTC),
+            )
+        )
     run.latency_ms = int((time.monotonic() - started) * 1000)
-    session.add(run)
-
-    if response is None:
-        response = WizardResponse(
-            venture_id=venture.id,
-            wizard_stage_id=stage.id,
-            answers=initial_answers,
-            status="in_progress",
-        )
-        session.add(response)
-    response.ai_analysis = analysis
-    if response.status != "completed":
-        response.status = "awaiting_user"
-    await session.flush()
-
-    session.add(
-        AuditLog(
-            organization_id=auth.organization_id,
-            actor_user_id=auth.user_id,
-            action="wizard_stage.research",
-            resource_type="wizard_response",
-            resource_id=response.id,
-        )
+    await save_stage_research(
+        session,
+        organization_id=auth.organization_id,
+        actor_user_id=auth.user_id,
+        venture=venture,
+        stage=stage,
+        response=responses.get(stage_slug),
+        analysis=analysis,
+        initial_answers=prepared.initial_answers,
+        run=run,
     )
     await session.commit()
     return analysis
@@ -421,7 +538,7 @@ async def research_history(
             select(AIRun)
             .where(
                 AIRun.venture_id == venture.id,
-                AIRun.operation == RESEARCH_OPERATIONS[stage_slug],
+                AIRun.operation == RESEARCH_DEFS[stage_slug].operation,
                 AIRun.status == "succeeded",
             )
             .order_by(AIRun.created_at.desc())
@@ -432,3 +549,82 @@ async def research_history(
         for run in runs
         if run.output_payload
     ]
+
+
+@router.post("/{venture_id}/stages/{stage_slug}/translate")
+async def translate_stage_analysis(
+    venture_id: uuid.UUID,
+    stage_slug: str,
+    payload: IdeaResearchRequest,
+    auth: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_session),
+    provider: AIProvider = Depends(get_ai_provider),
+) -> dict:
+    """The stage's saved AI analysis in the requested language.
+
+    Only human-readable text is translated (app/wizard/translation.py); every
+    number, ID, link and computed figure is kept. The translation is cached
+    with the analysis, so each language costs one AI call per analysis.
+    """
+    venture = await _load_venture(session, auth, venture_id)
+    stage = await _get_stage_or_404(session, stage_slug)
+    response = await _get_response(session, venture.id, stage.id)
+    analysis = response.ai_analysis if response else None
+    if not isinstance(analysis, dict) or not analysis:
+        raise HTTPException(status_code=404, detail="Nothing to translate yet")
+
+    target = payload.language
+    source = translation.source_language(analysis)
+    if source == target:
+        return {k: v for k, v in analysis.items() if k != "translations"}
+    cached = translation.cached_translation(analysis, target)
+    if cached is not None:
+        return cached
+
+    texts = translation.translatable_texts(analysis)
+    if len(texts) > translation.MAX_TEXTS or sum(len(t) for t in texts.values()) > translation.MAX_CHARS:
+        raise HTTPException(status_code=413, detail="This analysis is too long to translate")
+
+    run = AIRun(
+        organization_id=auth.organization_id,
+        venture_id=venture.id,
+        operation="translation",
+        provider=type(provider).__name__,
+        model=getattr(provider, "model", "unknown"),
+        input_payload={"stage": stage_slug, "from": source, "to": target, "texts": len(texts)},
+        status="pending",
+    )
+    started = time.monotonic()
+    translated: dict[str, str] = {}
+    async with metered(
+        session,
+        organization_id=auth.organization_id,
+        venture_id=venture.id,
+        user_id=auth.user_id,
+        operation="translation",
+    ):
+        try:
+            for batch in translation.batches(texts):
+                result = await provider.translate_texts(batch, target)
+                # Only keys that were sent are accepted.
+                translated.update({item.key: item.text for item in result.items if item.key in batch})
+        except Exception as exc:
+            run.status = "failed"
+            run.error_message = f"{type(exc).__name__}: {exc}"[:2000]
+            run.latency_ms = int((time.monotonic() - started) * 1000)
+            session.add(run)
+            await session.commit()
+            if isinstance(exc, OpenAIError):
+                raise
+            logger.exception("Translating %s failed for venture %s", stage_slug, venture.id)
+            raise HTTPException(status_code=503, detail="Translation failed. Please try again.") from exc
+
+    view = translation.apply_translations(analysis, translated, target, source)
+    run.status = "succeeded"
+    run.output_payload = {"translated": len(translated), "of": len(texts)}
+    run.latency_ms = int((time.monotonic() - started) * 1000)
+    session.add(run)
+    # A new dict, so the JSONB column is saved; the original stays as it was.
+    response.ai_analysis = {**analysis, "translations": {**(analysis.get("translations") or {}), target: view}}
+    await session.commit()
+    return view

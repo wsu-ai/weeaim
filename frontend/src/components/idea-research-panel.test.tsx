@@ -76,6 +76,32 @@ describe("IdeaResearchPanel", () => {
     expect(screen.getByText(/AI-generated research from/)).toBeInTheDocument();
   });
 
+  it("collapses feasibility, viability, risks and next steps until opened", () => {
+    stubApi({});
+    renderPanel(RESEARCH);
+
+    const sections = screen.getAllByTestId("research-section");
+    expect(sections.map((s) => s.querySelector("summary")?.textContent)).toEqual([
+      `${R.feasibilityTitle}${RESEARCH.feasibility.length}`,
+      `${R.viabilityTitle}${RESEARCH.viability.length}`,
+      `${R.risksTitle}${RESEARCH.key_risks.length}`,
+      `${R.nextStepsTitle}${RESEARCH.suggested_next_steps.length}`,
+    ]);
+    const risks = sections[2] as HTMLDetailsElement;
+    expect(risks.open).toBe(false);
+    fireEvent.click(screen.getByText(R.risksTitle));
+    expect(risks.open).toBe(true);
+    expect(screen.getByText(RESEARCH.key_risks[0])).toBeVisible();
+  });
+
+  it("names the collapsible sections in Korean", () => {
+    stubApi({});
+    renderPanel(RESEARCH, "ko");
+    for (const title of ["실현 가능성", "사업 지속 가능성", "주요 위험 요소", "추천 다음 단계"]) {
+      expect(screen.getByText(title).closest("summary")).not.toBeNull();
+    }
+  });
+
   it("opens web links safely and leaves uncited businesses unlinked", () => {
     stubApi({});
     renderPanel(RESEARCH);

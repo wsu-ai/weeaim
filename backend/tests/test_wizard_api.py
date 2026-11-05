@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -9,6 +10,7 @@ from app.db import async_session
 from app.dependencies import get_ai_provider
 from app.main import app
 from app.models import (
+    AgentRun,
     Organization,
     OrganizationMember,
     User,
@@ -17,6 +19,7 @@ from app.models import (
     WizardResponseRevision,
 )
 from app.tenancy import set_current_organization
+from tests.agent_helpers import agent_has_run
 
 IDEA_TEXT = "An AI-powered cooking assistant for Korean recipes targeting U.S. households."
 
@@ -61,6 +64,7 @@ async def _cleanup(session, org_slug: str, user_email: str) -> None:
     ).scalar_one_or_none()
     if org is not None:
         await set_current_organization(session, org.id)
+        await session.execute(AgentRun.__table__.delete())
         # No AuditLog delete: immutable to the app; ON DELETE SET NULL on its
         # organization FK means it won't block this cleanup.
         await session.execute(WizardResponseRevision.__table__.delete())
@@ -83,7 +87,7 @@ def _fake_ai_provider():
 
 
 @pytest.mark.asyncio
-async def test_list_stages_returns_eleven_stages_not_started():
+async def test_list_stages_returns_fifteen_stages_not_started():
     suffix = uuid.uuid4().hex[:8]
     async with async_session() as session:
         org_slug, user_email, venture_id = await _seed_org_user_venture(session, suffix)
@@ -97,7 +101,7 @@ async def test_list_stages_returns_eleven_stages_not_started():
             )
         assert response.status_code == 200
         stages = response.json()
-        assert len(stages) == 11
+        assert len(stages) == 15
         assert all(s["status"] == "not_started" for s in stages)
         implemented = {s["slug"] for s in stages if s["implemented"]}
         # Stage 1 (idea_discovery) became workable with AI idea research.
@@ -107,7 +111,29 @@ async def test_list_stages_returns_eleven_stages_not_started():
             "customer_definition",
             "existing_alternatives",
             "value_proposition",
+            "market_evidence",
+            "persona_validation",
+            "competitive_position",
+            "dfv_assessment",
+            "mvp",
+            "business_model",
+            "validation_plan",
+            "financial_analysis",
+            "marketing_plan",
         }
+        # Stage 7 is Personas Validation; competitive position and later moved up one.
+        assert [(s["number"], s["slug"]) for s in stages[5:]] == [
+            (6, "market_evidence"),
+            (7, "persona_validation"),
+            (8, "competitive_position"),
+            (9, "dfv_assessment"),
+            (10, "mvp"),
+            (11, "business_model"),
+            (12, "validation_plan"),
+            (13, "financial_analysis"),
+            (14, "marketing_plan"),
+            (15, "decision_roadmap"),
+        ]
         # Stage 4 is locked until stages 1-3 are completed.
         alternatives = next(s for s in stages if s["slug"] == "existing_alternatives")
         assert alternatives["locked"] is True
@@ -116,7 +142,27 @@ async def test_list_stages_returns_eleven_stages_not_started():
             "problem_definition",
             "customer_definition",
         ]
-        assert not any(s["locked"] for s in stages if s["slug"] != "existing_alternatives")
+        # Stage 6 is locked until stages 1-5 are completed.
+        market = next(s for s in stages if s["slug"] == "market_evidence")
+        assert market["locked"] is True
+        assert len(market["locked_by"]) == 5
+        # Stage 8 (competitive position) is locked until stages 1-6 are completed.
+        position = next(s for s in stages if s["slug"] == "competitive_position")
+        assert position["locked"] is True
+        assert len(position["locked_by"]) == 6
+        # Stage 9 (DFV) and Stage 7 (personas) are never locked.
+        personas_stage = next(s for s in stages if s["slug"] == "persona_validation")
+        assert personas_stage["locked"] is False and personas_stage["locked_by"] == []
+        dfv = next(s for s in stages if s["slug"] == "dfv_assessment")
+        assert dfv["locked"] is False and dfv["locked_by"] == []
+        # Stage 11 (business model) is never locked either.
+        business = next(s for s in stages if s["slug"] == "business_model")
+        assert business["locked"] is False and business["locked_by"] == []
+        assert not any(
+            s["locked"]
+            for s in stages
+            if s["slug"] not in ("existing_alternatives", "market_evidence", "competitive_position")
+        )
         idea_stage = next(s for s in stages if s["slug"] == "idea_discovery")
         assert [f["name"] for f in idea_stage["question_schema"]["fields"]] == [
             "idea_statement",
@@ -167,7 +213,7 @@ async def test_update_stage_rejects_unimplemented_slug():
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.put(
-                f"/api/ventures/{venture_id}/stages/market_evidence",
+                f"/api/ventures/{venture_id}/stages/decision_roadmap",
                 json={"answers": {}, "complete": False},
                 headers={"X-Dev-User-Email": user_email, "X-Dev-Organization-Slug": org_slug},
             )
@@ -235,7 +281,7 @@ async def test_editing_completed_stage_cascades_needs_revision_to_later_stage():
 
 
 @pytest.mark.asyncio
-async def test_analyze_requires_existing_answers_then_returns_analysis():
+async def test_feedback_needs_the_agent_and_an_answer_then_returns_analysis():
     suffix = uuid.uuid4().hex[:8]
     async with async_session() as session:
         org_slug, user_email, venture_id = await _seed_org_user_venture(session, suffix)
@@ -244,11 +290,18 @@ async def test_analyze_requires_existing_answers_then_returns_analysis():
         transport = ASGITransport(app=app)
         headers = {"X-Dev-User-Email": user_email, "X-Dev-Organization-Slug": org_slug}
         async with AsyncClient(transport=transport, base_url="http://test") as client:
+            no_agent = await client.post(
+                f"/api/ventures/{venture_id}/stages/problem_definition/analyze",
+                json={"answers": VALID_PROBLEM_ANSWERS},
+                headers=headers,
+            )
+            assert (no_agent.status_code, no_agent.json()["detail"]) == (422, "agent_not_run")
+            await agent_has_run(org_slug, venture_id, "problem_definition")
             no_answers_response = await client.post(
                 f"/api/ventures/{venture_id}/stages/problem_definition/analyze",
                 headers=headers,
             )
-            assert no_answers_response.status_code == 400
+            assert (no_answers_response.status_code, no_answers_response.json()["detail"]) == (422, "no_answers")
 
             await client.put(
                 f"/api/ventures/{venture_id}/stages/problem_definition",
@@ -268,7 +321,12 @@ async def test_analyze_requires_existing_answers_then_returns_analysis():
             )
         stages_by_slug = {s["slug"]: s for s in stages_response.json()}
         assert stages_by_slug["problem_definition"]["status"] == "awaiting_user"
-        assert stages_by_slug["problem_definition"]["ai_analysis"] is not None
+        feedback = stages_by_slug["problem_definition"]["ai_analysis"]
+        assert feedback is not None
+        # The time the mentor feedback was received is saved with it.
+        analyzed_at = datetime.fromisoformat(feedback["analyzed_at"])
+        assert analyzed_at.tzinfo is not None
+        assert abs((datetime.now(UTC) - analyzed_at).total_seconds()) < 60
     finally:
         async with async_session() as session:
             await _cleanup(session, org_slug, user_email)

@@ -25,6 +25,10 @@ services:
         value: "2"
       - key: SESSION_SECRET
         generateValue: true
+      # Encrypts stored API keys of external data sources; keep it stable
+      # (changing it makes saved keys unreadable).
+      - key: SOURCE_KEYS_SECRET
+        generateValue: true
       - key: EMAIL_BACKEND
         value: smtp
       # Supabase (Session pooler, port 5432, ?ssl=require) -- see the guide.

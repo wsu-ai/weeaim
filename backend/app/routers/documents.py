@@ -13,6 +13,7 @@ from app.db import get_session
 from app.dependencies import get_embedding_provider, get_storage_adapter
 from app.documents.extraction import extract_document
 from app.documents.retrieval import retrieve_for_venture
+from app.tokens import metered
 from app.documents.schemas import (
     DocumentEmbedResult,
     DocumentProcessResult,
@@ -231,7 +232,14 @@ async def embed_document(
     ).scalars().all()
 
     if unembedded:
-        vectors = await embedder.embed([chunk.content for chunk in unembedded])
+        async with metered(
+            session,
+            organization_id=auth.organization_id,
+            venture_id=venture.id,
+            user_id=auth.user_id,
+            operation="document_embedding",
+        ):
+            vectors = await embedder.embed([chunk.content for chunk in unembedded])
         for chunk, vector in zip(unembedded, vectors, strict=True):
             chunk.embedding = vector
 
@@ -260,14 +268,22 @@ async def retrieve_chunks(
     venture = await _load_venture(session, auth, venture_id)
     limit = min(payload.limit, settings.retrieval_max_chunks)
 
-    ranked = await retrieve_for_venture(
+    async with metered(
         session,
-        venture.id,
-        embedder,
-        payload.query,
-        limit=limit,
-        candidate_pool=settings.retrieval_max_chunks,
-    )
+        organization_id=auth.organization_id,
+        venture_id=venture.id,
+        user_id=auth.user_id,
+        operation="document_retrieval",
+    ):
+        ranked = await retrieve_for_venture(
+            session,
+            venture.id,
+            embedder,
+            payload.query,
+            limit=limit,
+            candidate_pool=settings.retrieval_max_chunks,
+        )
+    await session.commit()  # the token usage
 
     return [
         RetrievedChunk(

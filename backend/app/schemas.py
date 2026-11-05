@@ -34,6 +34,15 @@ class VentureSummary(VentureRead):
     can_delete: bool
 
 
+class ArchivedVentureSummary(VentureRead):
+    """A venture in the "Archived ventures" list."""
+
+    archived_at: datetime
+    archived_by_name: str | None
+    completed_stages: int
+    total_stages: int
+
+
 class ResearchRunRead(BaseModel):
     """One saved Stage 1 research run (from ai_runs)."""
 
@@ -67,6 +76,24 @@ class SessionRead(BaseModel):
     organizations: list[OrganizationSummary]
     # Slug of the organization this session acts in; None until chosen.
     active_organization: str | None
+    # The user's default location for Stage 6 market sizing (may be unset).
+    default_country: str | None = None
+    default_metro_city: str | None = None
+    # False for accounts without a password (e.g. Google sign-in only): they
+    # confirm destructive actions with an emailed code instead.
+    has_password: bool = False
+
+
+class LocationPreferencesUpdate(BaseModel):
+    default_country: str | None = Field(default=None, max_length=100)
+    default_metro_city: str | None = Field(default=None, max_length=100)
+
+    @field_validator("default_country", "default_metro_city", mode="before")
+    @classmethod
+    def blank_clears(cls, value: str | None) -> str | None:
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
 
 
 class AuthConfigRead(BaseModel):

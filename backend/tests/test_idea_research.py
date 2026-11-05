@@ -32,7 +32,11 @@ from app.db import async_session
 from app.dependencies import get_ai_provider
 from app.main import app
 from app.models import (
+    AgentRun,
+    AgentRunStep,
     AIRun,
+    VentureAsset,
+    PersonaMessage,
     AuditLog,
     Organization,
     OrganizationMember,
@@ -80,7 +84,11 @@ class Tenants:
                     await session.execute(select(Organization).where(Organization.slug == org_slug))
                 ).scalar_one()
                 await set_current_organization(session, org.id)
+                await session.execute(delete(AgentRunStep).where(AgentRunStep.organization_id == org.id))
+                await session.execute(delete(AgentRun).where(AgentRun.organization_id == org.id))
                 await session.execute(delete(AIRun).where(AIRun.organization_id == org.id))
+                await session.execute(delete(VentureAsset).where(VentureAsset.organization_id == org.id))
+                await session.execute(delete(PersonaMessage).where(PersonaMessage.organization_id == org.id))
                 await session.execute(WizardResponseRevision.__table__.delete())
                 await session.execute(WizardResponse.__table__.delete())
                 await session.execute(Venture.__table__.delete())
@@ -561,7 +569,7 @@ async def test_venture_list_shows_saved_progress_for_own_organization_only(tenan
     assert str(other_venture) not in by_id  # another organization's venture
     entry = by_id[str(venture_id)]
     assert entry["completed_stages"] == 1
-    assert entry["total_stages"] == 11
+    assert entry["total_stages"] == 15
     assert entry["feasibility_score"] == 68
     assert entry["researched_at"]
     assert signed_out.status_code == 401

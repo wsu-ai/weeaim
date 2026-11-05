@@ -1,4 +1,4 @@
-"""Permanent venture deletion: everything a venture owns is erased.
+"""Permanent venture deletion (archive first, then re-confirm): everything a venture owns is erased.
 
 Builds a venture with answers + history, research runs, an idea version, a
 processed document (file + search vectors) and an evidence item, then
@@ -36,6 +36,7 @@ from app.models import (
 )
 from app.storage.local import LocalFilesystemStorageAdapter
 from app.tenancy import set_current_organization
+from tests.archive_helpers import archive, delete_permanently
 
 IDEA = "An AI-powered cooking assistant for Korean recipes targeting U.S. households."
 PITCH_TEXT = (
@@ -194,7 +195,7 @@ async def test_creator_permanently_deletes_venture_and_everything_it_owns(world,
         assert all(n > 0 for table, n in before.items() if table != "venture_members"), before
         assert any(storage_dir.rglob("*.txt"))
 
-        response = await c.delete(f"/api/ventures/{venture_id}", headers=org.headers(member))
+        response = await delete_permanently(c, venture_id, org.headers(member))
         assert response.status_code == 204
 
         assert all(n == 0 for n in (await child_counts(org, venture_id)).values())
@@ -225,7 +226,7 @@ async def test_org_admin_can_delete_a_members_venture(world, storage_dir):
     admin = await world.user(org, "admin")
     async with client() as c:
         venture_id = (await c.post("/api/ventures", json={"idea": IDEA}, headers=org.headers(member))).json()["id"]
-        response = await c.delete(f"/api/ventures/{venture_id}", headers=org.headers(admin))
+        response = await delete_permanently(c, venture_id, org.headers(admin))
     assert response.status_code == 204
 
 
@@ -238,7 +239,7 @@ async def test_other_members_cannot_delete_and_nothing_is_lost(world, storage_di
         venture_id = await build_full_venture(c, org, creator)
         before = await child_counts(org, venture_id)
 
-        response = await c.delete(f"/api/ventures/{venture_id}", headers=org.headers(other_member))
+        response = await archive(c, venture_id, org.headers(other_member))
         assert response.status_code == 403
         assert await child_counts(org, venture_id) == before
         assert any(storage_dir.rglob("*.txt"))
@@ -254,13 +255,13 @@ async def test_other_organizations_and_signed_out_users_cannot_delete(world, sto
         venture_a = (await c.post("/api/ventures", json={"idea": IDEA}, headers=org_a.headers(owner_a))).json()["id"]
         venture_b = (await c.post("/api/ventures", json={"idea": IDEA}, headers=org_b.headers(owner_b))).json()["id"]
 
-        cross = await c.delete(f"/api/ventures/{venture_a}", headers=org_b.headers(owner_b))
-        signed_out = await c.delete(f"/api/ventures/{venture_a}")
+        cross = await archive(c, venture_a, org_b.headers(owner_b))
+        signed_out = await c.post(f"/api/ventures/{venture_a}/archive", json={"password": "x"})
         assert cross.status_code == 404
         assert signed_out.status_code == 401
 
         # Deleting in org B leaves org A untouched.
-        assert (await c.delete(f"/api/ventures/{venture_b}", headers=org_b.headers(owner_b))).status_code == 204
+        assert (await delete_permanently(c, venture_b, org_b.headers(owner_b))).status_code == 204
         assert (await c.get(f"/api/ventures/{venture_a}", headers=org_a.headers(owner_a))).status_code == 200
 
 

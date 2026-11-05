@@ -6,8 +6,21 @@ from fastapi.responses import JSONResponse
 from openai import OpenAIError
 from sqlalchemy.exc import InterfaceError, OperationalError
 
+from app.ai.errors import ai_problem
 from app.config import settings
-from app.routers import admin, auth, documents, reports, ventures, wizard
+from app.routers import (
+    admin,
+    agents,
+    auth,
+    documents,
+    external_sources,
+    learning,
+    personas,
+    reports,
+    tokens,
+    ventures,
+    wizard,
+)
 from app.sessions import SessionConfigError
 
 logger = logging.getLogger(__name__)
@@ -24,9 +37,12 @@ async def openai_error_handler(request: Request, exc: OpenAIError) -> JSONRespon
     # structured outputs, or handled retries" release gate) -- this makes
     # failures handled, not retried.
     logger.error("OpenAI API error on %s: %s", request.url.path, exc)
+    # Out of credits, rate-limited or a rejected key get their own reason, so
+    # the app can say what to do (e.g. "ask the administrator to add credits").
+    problem = ai_problem(exc)
     return JSONResponse(
         status_code=503,
-        content={"detail": "The AI service is temporarily unavailable. Please try again shortly."},
+        content={"detail": problem or "The AI service is temporarily unavailable. Please try again shortly."},
     )
 
 
@@ -72,6 +88,11 @@ app.include_router(auth.router)
 app.include_router(admin.router)
 app.include_router(ventures.router)
 app.include_router(wizard.router)
+app.include_router(personas.router)
+app.include_router(agents.router)
+app.include_router(tokens.router)
+app.include_router(learning.router)
+app.include_router(external_sources.router)
 app.include_router(documents.router)
 app.include_router(reports.router)
 

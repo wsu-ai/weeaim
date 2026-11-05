@@ -2,6 +2,7 @@
 
 import { useFormatter, useTranslations } from "next-intl";
 
+import { ExternalSourcesButton } from "@/components/external-sources";
 import type { ResearchRun } from "@/lib/api";
 
 function feasibilityOf(run: ResearchRun): number | null {
@@ -20,11 +21,14 @@ export function ResearchSidebar({
   runs,
   viewingRunId,
   onSelectRun,
+  externalSources = false,
 }: {
-  research: { sources: { title: string; url: string }[] } | null;
+  research: { sources: { title: string; url: string; via?: string }[] } | null;
   runs: ResearchRun[];
   viewingRunId: string | null;
   onSelectRun: (runId: string | null) => void;
+  /** Offer "External Source" under Sources (Stage 1). */
+  externalSources?: boolean;
 }) {
   const t = useTranslations("ResearchSidebar");
   const format = useFormatter();
@@ -43,11 +47,21 @@ export function ResearchSidebar({
                 <a href={source.url} {...EXTERNAL_LINK} className="break-words text-blue-700 hover:underline">
                   {source.title}
                 </a>
+                {source.via && (
+                  <span className="ml-1 rounded bg-blue-50 px-1 py-0.5 text-xs whitespace-nowrap text-blue-800">
+                    {t("via", { name: source.via })}
+                  </span>
+                )}
               </li>
             ))}
           </ol>
         ) : (
           <p className="text-muted-foreground text-sm">{research ? t("noSources") : t("sourcesPending")}</p>
+        )}
+        {externalSources && (
+          <div className="mt-3 border-t pt-3">
+            <ExternalSourcesButton />
+          </div>
         )}
       </section>
 

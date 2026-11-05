@@ -16,6 +16,7 @@ def get_ai_provider() -> AIProvider:
         api_key=settings.openai_api_key,
         model=settings.openai_model,
         web_search_domains=settings.web_search_domains,
+        image_model=settings.openai_image_model,
     )
 
 

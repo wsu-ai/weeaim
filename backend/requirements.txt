@@ -12,3 +12,8 @@ openpyxl
 pgvector
 PyJWT[crypto]
 argon2-cffi
+python-pptx
+# Used directly to call external data sources (already installed by openai).
+httpx
+# Encrypts external sources' API keys (already installed by PyJWT[crypto]).
+cryptography
